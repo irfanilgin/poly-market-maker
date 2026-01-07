@@ -5,13 +5,8 @@ import random
 import yaml
 from logging import config
 from web3 import Web3
-from web3.middleware import (
-    geth_poa_middleware,
-    construct_sign_and_send_raw_middleware,
-    time_based_cache_middleware,
-    latest_block_based_cache_middleware,
-    simple_cache_middleware,
-)
+from web3.middleware import ExtraDataToPOAMiddleware, SignAndSendRawMiddlewareBuilder
+from web3.gas_strategies.time_based import fast_gas_price_strategy
 from web3.gas_strategies.time_based import fast_gas_price_strategy
 
 
@@ -47,18 +42,25 @@ def setup_logging(
 def setup_web3(rpc_url, private_key):
     w3 = Web3(Web3.HTTPProvider(rpc_url))
 
-    # Middleware to sign transactions from a private key
-    w3.middleware_onion.inject(geth_poa_middleware, layer=0)
-    w3.middleware_onion.add(construct_sign_and_send_raw_middleware(private_key))
+    # 1. POA Middleware (Updated for v7)
+    # Replaces: w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+    w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+
+    # 2. Signing Middleware (Updated to Builder Pattern)
+    # Replaces: w3.middleware_onion.add(construct_sign_and_send_raw_middleware(private_key))
+    w3.middleware_onion.add(SignAndSendRawMiddlewareBuilder.build(private_key))
+    
+    # Set default account (Unchanged)
     w3.eth.default_account = w3.eth.account.from_key(private_key).address
 
-    # Gas Middleware
+    # 3. Gas Middleware (Unchanged, but ensure import is correct)
     w3.eth.set_gas_price_strategy(fast_gas_price_strategy)
 
-    # Caching middleware
-    w3.middleware_onion.add(time_based_cache_middleware)
-    w3.middleware_onion.add(latest_block_based_cache_middleware)
-    w3.middleware_onion.add(simple_cache_middleware)
+    # 4. Caching Middleware
+    # NOTE: These were removed in v6/v7. 
+    # Do not include: time_based_cache_middleware, simple_cache_middleware, etc.
+    # If you need caching, you must implement it at the application level 
+    # (e.g. using functools.lru_cache on specific functions).
 
     return w3
 
@@ -66,7 +68,7 @@ def setup_web3(rpc_url, private_key):
 def math_round_down(f: float, sig_digits: int) -> float:
     str_f = str(f).split(".")
     if len(str_f) > 1 and len(str_f[1]) == sig_digits:
-        # don't round values which are already the number of sig_digits
+        # don,t round values which are already the number of sig_digits
         return f
     return math.floor((f * (10**sig_digits))) / (10**sig_digits)
 
@@ -74,13 +76,13 @@ def math_round_down(f: float, sig_digits: int) -> float:
 def math_round_up(f: float, sig_digits: int) -> float:
     str_f = str(f).split(".")
     if len(str_f) > 1 and len(str_f[1]) == sig_digits:
-        # don't round values which are already the number of sig_digits
+        # don,t round values which are already the number of sig_digits
         return f
     return math.ceil((f * (10**sig_digits))) / (10**sig_digits)
 
 
 def add_randomness(price: float, lower: float, upper: float) -> float:
-    return math_round_down(price + random.uniform(lower, upper), 2)
+    return math.floor((price + random.uniform(lower, upper)) * (10**2)) / (10**2)
 
 
 def randomize_default_price(price: float) -> float:
