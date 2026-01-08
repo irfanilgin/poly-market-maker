@@ -1,0 +1,32 @@
+# Task: Fix Error Handling & Verify with Live Data
+
+**Diagnosis from Logs:**
+1.  **Success:** The `MockExchange` correctly filled orders when we manually pushed price updates.
+2.  **Failure:** The background threads (`_thread_refresh_order_book`) crashed.
+    * **Reason:** We used a dummy Token ID (`0x111...`). The real API rejected it, returning `None`.
+    * **Bug:** The logging code tried to iterate over `None` (`[order.id for order in orders]`), causing a `TypeError`.
+
+**Step 1: Patch the Crash (Robustness)**
+* Open `poly_market_maker/orderbook.py`.
+* Locate `_thread_refresh_order_book`.
+* **Fix:** Before the logging statement that iterates over `orders`, add a check:
+    ```python
+    if orders is None:
+        self.logger.error("Failed to fetch order book: orders is None")
+        return # Skip this refresh cycle
+    ```
+
+**Step 2: Real World Verification**
+* We need to prove that `ShadowBook` works with **LIVE** data, not just manual simulation.
+* **Action:** Find a currently active Polymarket Token ID (e.g., check the Polymarket website for a high-volume market like "Trump vs..." or "Fed Rates").
+* **Command:** Run the simulation again with the REAL Token ID.
+    ```bash
+    # Example (Replace with a valid ID you find)
+    python main.py --simulate --token-id <VALID_REAL_TOKEN_ID>
+    ```
+
+**Expected Outcome:**
+* No `Unrecognized token ID` errors.
+* WebSocket connects successfully.
+* "Updating market data" logs show **real** prices streaming in.
+* Our Virtual Orders sit in the book until the real market moves.

@@ -15,6 +15,9 @@ from poly_market_maker.orderbook import OrderBookManager
 from poly_market_maker.contracts import Contracts
 from poly_market_maker.metrics import keeper_balance_amount
 from poly_market_maker.strategy import StrategyManager
+from poly_market_maker.price_listener import PriceListener
+from poly_market_maker.simulation.shadow_book import ShadowBook
+from poly_market_maker.simulation.mock_exchange import MockExchange
 
 
 class App:
@@ -25,10 +28,6 @@ class App:
         self.logger = logging.getLogger(__name__)
 
         args = get_args(args)
-        self.sync_interval = args.sync_interval
-
-        # self.min_tick = args.min_tick
-        # self.min_size = args.min_size
 
         # server to expose the metrics.
         self.metrics_server_port = args.metrics_server_port
@@ -37,11 +36,37 @@ class App:
         self.web3 = setup_web3(args.rpc_url, args.private_key)
         self.address = self.web3.eth.account.from_key(args.private_key).address
 
-        self.clob_api = ClobApi(
-            host=args.clob_api_url,
-            chain_id=self.web3.eth.chain_id,
-            private_key=args.private_key,
-        )
+        self.shadow_book = None
+        if args.simulate:
+            # Initialize MockExchange first to get collateral address
+            # ShadowBook needs a token_id which is derived from Market, which needs collateral address
+            mock_exchange_instance = MockExchange(shadow_book=None) # Pass None initially for shadow_book
+            
+            self.market = Market(
+                args.condition_id,
+                mock_exchange_instance.get_collateral_address(),
+            )
+            
+            # Derive token_id for YES outcome (Token.A) using the real collateral address
+            # This will ensure the ShadowBook tracks the correct real-world token.
+            real_token_id = self.market.token_id(Token.A)
+            self.logger.info(f"Derived real token_id for Token.A (YES outcome): {real_token_id}")
+
+            self.shadow_book = ShadowBook(token_id=real_token_id, initial_collateral_balance=100000.0)
+            # Now re-initialize MockExchange with the actual shadow_book
+            self.clob_api = MockExchange(shadow_book=self.shadow_book)
+            self.logger.info("Initialized MockExchange for simulation mode with real token_id.")
+        else:
+            self.clob_api = ClobApi(
+                host=args.clob_api_url,
+                chain_id=self.web3.eth.chain_id,
+                private_key=args.private_key,
+            )
+
+            self.market = Market(
+                args.condition_id,
+                self.clob_api.get_collateral_address(),
+            )
 
         self.gas_station = GasStation(
             strat=GasStrategy(args.gas_strategy),
@@ -50,11 +75,6 @@ class App:
             fixed=args.fixed_gas_price,
         )
         self.contracts = Contracts(self.web3, self.gas_station)
-
-        self.market = Market(
-            args.condition_id,
-            self.clob_api.get_collateral_address(),
-        )
 
         self.price_feed = PriceFeedClob(self.market, self.clob_api)
 
@@ -79,15 +99,24 @@ class App:
             self.order_book_manager,
         )
 
+        # TODO: understand asset_id=real_token_id if args.simulate else None
+        self.price_listener = PriceListener(
+            ws_url=args.clob_ws_url,
+            condition_id=args.condition_id,
+            callback=self.synchronize,
+            debounce_ms=args.websocket_debounce_ms,
+            shadow_book=self.shadow_book if args.simulate else None,
+            asset_id=real_token_id if args.simulate else None # Pass the derived real_token_id for subscription
+        )
+        self.price_listener.start()
+
     """
     main
     """
 
     def main(self):
-        self.logger.debug(self.sync_interval)
         with Lifecycle() as lifecycle:
             lifecycle.on_startup(self.startup)
-            lifecycle.every(self.sync_interval, self.synchronize)  # Sync every 5s
             lifecycle.on_shutdown(self.shutdown)
 
     """
@@ -96,7 +125,9 @@ class App:
 
     def startup(self):
         self.logger.info("Running startup callback...")
-        self.approve()
+        # Only approve real contracts if not in simulation mode
+        if not self.shadow_book:
+            self.approve()
         time.sleep(5)  # 5 second initial delay so that bg threads fetch the orderbook
         self.logger.info("Startup complete!")
 
@@ -122,51 +153,57 @@ class App:
 
     def get_balances(self) -> dict:
         """
-        Fetch the onchain balances of collateral and conditional tokens for the keeper
+        Fetch the balances of collateral and conditional tokens for the keeper.
+        In simulation mode, fetches from MockExchange. Otherwise, from on-chain contracts.
         """
-        self.logger.debug(f"Getting balances for address: {self.address}")
+        if self.shadow_book:
+            # In simulation mode, get balances directly from the mock exchange (ShadowBook)
+            return self.clob_api.get_balances()
+        else:
+            # Original on-chain balance fetching logic
+            self.logger.debug(f"Getting balances for address: {self.address}")
 
-        collateral_balance = self.contracts.token_balance_of(
-            self.clob_api.get_collateral_address(), self.address
-        )
-        token_A_balance = self.contracts.token_balance_of(
-            self.clob_api.get_conditional_address(),
-            self.address,
-            self.market.token_id(Token.A),
-        )
-        token_B_balance = self.contracts.token_balance_of(
-            self.clob_api.get_conditional_address(),
-            self.address,
-            self.market.token_id(Token.B),
-        )
-        gas_balance = self.contracts.gas_balance(self.address)
+            collateral_balance = self.contracts.token_balance_of(
+                self.clob_api.get_collateral_address(), self.address
+            )
+            token_A_balance = self.contracts.token_balance_of(
+                self.clob_api.get_conditional_address(),
+                self.address,
+                self.market.token_id(Token.A),
+            )
+            token_B_balance = self.contracts.token_balance_of(
+                self.clob_api.get_conditional_address(),
+                self.address,
+                self.market.token_id(Token.B),
+            )
+            gas_balance = self.contracts.gas_balance(self.address)
 
-        keeper_balance_amount.labels(
-            accountaddress=self.address,
-            assetaddress=self.clob_api.get_collateral_address(),
-            tokenid="-1",
-        ).set(collateral_balance)
-        keeper_balance_amount.labels(
-            accountaddress=self.address,
-            assetaddress=self.clob_api.get_conditional_address(),
-            tokenid=self.market.token_id(Token.A),
-        ).set(token_A_balance)
-        keeper_balance_amount.labels(
-            accountaddress=self.address,
-            assetaddress=self.clob_api.get_conditional_address(),
-            tokenid=self.market.token_id(Token.B),
-        ).set(token_B_balance)
-        keeper_balance_amount.labels(
-            accountaddress=self.address,
-            assetaddress="0x0",
-            tokenid="-1",
-        ).set(gas_balance)
+            keeper_balance_amount.labels(
+                accountaddress=self.address,
+                assetaddress=self.clob_api.get_collateral_address(),
+                tokenid="-1",
+            ).set(collateral_balance)
+            keeper_balance_amount.labels(
+                accountaddress=self.address,
+                assetaddress=self.clob_api.get_conditional_address(),
+                tokenid=self.market.token_id(Token.A),
+            ).set(token_A_balance)
+            keeper_balance_amount.labels(
+                accountaddress=self.address,
+                assetaddress=self.clob_api.get_conditional_address(),
+                tokenid=self.market.token_id(Token.B),
+            ).set(token_B_balance)
+            keeper_balance_amount.labels(
+                accountaddress=self.address,
+                assetaddress="0x0",
+                tokenid="-1",
+            ).set(gas_balance)
 
-        return {
-            Collateral: collateral_balance,
-            Token.A: token_A_balance,
-            Token.B: token_B_balance,
-        }
+            return {
+                Collateral: collateral_balance,
+                Token.A: token_A_balance,
+                Token.B: token_B_balance,
+            }
 
     def get_orders(self) -> list[Order]:
         orders = self.clob_api.get_orders(self.market.condition_id)

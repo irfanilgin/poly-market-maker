@@ -1,0 +1,16 @@
+# Task: Build "Market Recorder" (Data Engineering)
+
+**Context:**
+Polymarket API does not provide historical order book snapshots. To backtest our "Inventory Skew" logic effectively, we need to record the "Shape" of the book over time.
+
+**Objective:**
+Create a standalone service `MarketRecorder` that listens to the WebSocket and writes the order book state to a local file (CSV/Parquet) every $X$ seconds.
+
+**Requirements:**
+1.  **Snapshot Logic:** Every 1 second (or on every `price_change` event), capture:
+    * Timestamp
+    * Best Bid / Best Ask
+    * Spread
+    * **Depth Ratio:** `(Volume at Best Bid) / (Volume at Best Ask)`
+2.  **Storage:** Save these snapshots to `data/raw/book_snapshots_{date}.csv`.
+3.  **Why:** This dataset will allow us to calculate "Imbalance Pressure" and train our future alpha models.

@@ -1,0 +1,24 @@
+# Task: Validation - Connect to Real Market Data
+
+**Objective:**
+Prove that the `ShadowBook` can be driven by the **Real Polymarket WebSocket**, not just manual loop updates. Stop generating fake price updates in the simulation loop. We are moving from "Unit Test Mode" to "Shadow Mode".
+
+**The Problem:**
+The previous logs showed `WebSocket error: [Errno 11001]`. This usually means the `host` URL is wrong or the Token ID does not map to a valid market on the server, causing the connection to drop.
+
+**Instructions:**
+1.  **Remove the Loop:** Delete the code in `main.py` (or the simulation function) that manually generates `Simulating price update: Bid=...`.
+2.  **Data Source:** The `ShadowBook` must ONLY be updated by the `_thread_refresh_order_book` or the WebSocket callback.
+
+**Goal:**
+I want to run `python main.py --simulate --token-id <REAL_ID>` and see the bot sitting silently, logging "Virtual Fill" ONLY when the *actual* Polymarket price moves across my order levels.
+
+**Steps:**
+1.  **I provided you a valid condition_id:**
+    * Using this condition_id: Print the `token_id` (the large integer) for the "YES" outcome.
+    * Run the simulation mode with this condition_id
+
+3.  **Success Criteria:**
+    * No `getaddrinfo` errors.
+    * You should see a stream of `Updating market data: Bid=... Ask=...` that matches the actual price on the Polymarket website.
+    * **Constraint:** Do not modify the strategy logic yet. Just verify the data pipe is open.

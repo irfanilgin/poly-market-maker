@@ -1,0 +1,45 @@
+# Task: Architecture - Execution Engine Decoupling
+
+**Objective:**
+Refactor the application's entry point (`main.py` or `market_maker.py`) to allow seamless switching between "Live Execution" and "Simulation" modes, while ensuring the **WebSocket Data Stream** always remains active to drive the simulation.
+
+**Context:**
+We have implemented `MockExchange` and `ShadowBook`. Now we need to inject them into the `MarketMaker` class based on the application configuration.
+
+**Detailed Requirements:**
+
+1.  **Define the Interface (Protocol):**
+    * Create an abstract base class or Protocol named `ExecutionClient` in `poly_market_maker/clob_api/interface.py`.
+    * It must enforce the signatures found in your `MockExchange`:
+        * `place_order(...)`
+        * `cancel_order(...)`
+        * `cancel_all_orders()`
+        * `get_orders(...)`
+        * `get_balances()`
+        * `get_price(...)`
+
+2.  **Verify Implementations:**
+    * Ensure the existing `ClobClient` (the real API client) adheres to this `ExecutionClient` interface.
+    * Ensure our new `MockExchange` adheres to this `ExecutionClient` interface.
+
+3.  **Refactor the Factory Logic:**
+    * In the main setup script, update or create the client initialization logic.
+    * **Logic:**
+        * **Check for Simulation Flag:** (e.g., `if args.simulate:` or `if config.simulate:`)
+            * Initialize `ShadowBook(token_id=args.token_id)`.
+            * Initialize `MockExchange(shadow_book=shadow_book)`.
+            * **Crucial:** Pass the *same* `shadow_book` instance to your WebSocket handler (or a new `MarketListener` adapter) so `shadow_book.update_market_data()` receives real-time price updates.
+        * **Else (Live Mode):**
+            * Initialize `ClobClient(...)` with real API keys.
+
+4.  **Wire the Data Stream:**
+    * The `ShadowBook.update_market_data(best_bid, best_ask)` method triggers the `check_fills()` logic.
+    * You must ensure that the `MarketMaker` class or the WebSocket `on_message` callback calls this method on every price tick.
+    * **Constraint:** This data piping must happen regardless of whether the `simulate` flag is True or False (we always need data).
+
+5.  **Validation:**
+    * Run the bot with the simulate flag (e.g., `python main.py --simulate`).
+    * Verify in logs that:
+        1.  "Updating market data" logs appear (WebSocket is working).
+        2.  "Virtual Fill" logs appear when the price crosses your orders.
+        3.  No HTTP requests are sent to the real Polymarket order endpoint.

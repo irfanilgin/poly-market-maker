@@ -383,13 +383,17 @@ class OrderBookManager:
                     self._refresh_count += 1
 
                 self._report_order_book_updated()
-
-                self.logger.debug(
-                    f"Fetched the order book"
-                    f" (orders: {[order.id for order in orders]}, "
-                    f" buys: {len([order for order in orders if order.side == Side.BUY])}, "
-                    f" sells: {len([order for order in orders if order.side == Side.SELL])})"
-                )
+                
+                if orders is None:
+                    self.logger.error("Failed to fetch order book: orders is None")
+                    return # Skip this refresh cycle
+                else:
+                    self.logger.debug(
+                        f"Fetched the order book"
+                        f" (orders: {[order.id for order in orders]}, "
+                        f" buys: {len([order for order in orders if order.side == Side.BUY])}, "
+                        f" sells: {len([order for order in orders if order.side == Side.SELL])})"
+                    )
             except ValueError as e:
                 self.logger.error(f"Failed to fetch the order book or balances ({e})!")
 

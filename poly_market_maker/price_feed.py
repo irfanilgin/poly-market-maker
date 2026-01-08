@@ -4,6 +4,7 @@ import logging
 from poly_market_maker.clob_api import ClobApi
 from poly_market_maker.market import Market
 from poly_market_maker.token import Token
+from poly_market_maker.simulation.mock_exchange import MockExchange
 
 
 class PriceFeedSource(Enum):
@@ -27,7 +28,7 @@ class PriceFeedClob(PriceFeed):
         super().__init__()
 
         assert isinstance(market, Market)
-        assert isinstance(clob_api, ClobApi)
+        assert isinstance(clob_api, (ClobApi, MockExchange))
 
         self.market = market
         self.clob_api = clob_api

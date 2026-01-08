@@ -89,4 +89,11 @@ def get_args(args) -> dict:
         help="Strategy configuration file path",
     )
 
+    parser.add_argument(
+        "--simulate",
+        type=bool,
+        required=True,
+        help="Run mode",
+    )
+
     return parser.parse_args(args)
