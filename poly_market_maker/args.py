@@ -13,6 +13,17 @@ def get_args(args) -> dict:
     parser.add_argument("--clob-api-url", type=str, required=True, help="CLOB API url")
 
     parser.add_argument(
+        "--clob-ws-url", type=str, required=True, help="CLOB WebSocket URL"
+    )
+
+    parser.add_argument(
+        "--websocket-debounce-ms",
+        type=int,
+        default=100,
+        help="Minimum delay (in ms) between WebSocket price triggers",
+    )
+
+    parser.add_argument(
         "--sync-interval",
         type=int,
         required=False,
@@ -47,7 +58,7 @@ def get_args(args) -> dict:
         "--gas-strategy",
         type=str,
         default="web3",
-        help="Gas strategy to be used['fixed', 'station', 'web3']",
+        help="Gas strategy to be used [\"fixed\", \"station\", \"web3\"]",
     )
 
     parser.add_argument("--gas-station-url", type=str, help="Gas station url")
