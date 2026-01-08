@@ -49,7 +49,7 @@ class StrategyManager:
             case _:
                 raise Exception("Invalid strategy")
 
-    def synchronize(self):
+    def synchronize(self, price: float = None):
         self.logger.debug("Synchronizing strategy...")
 
         try:
@@ -58,7 +58,7 @@ class StrategyManager:
             self.logger.error(f"{e}")
             return
 
-        token_prices = self.get_token_prices()
+        token_prices = self.get_token_prices(price=price)
         self.logger.debug(f"{token_prices}")
         (orders_to_cancel, orders_to_place) = self.strategy.get_orders(
             orderbook, token_prices
@@ -85,11 +85,14 @@ class StrategyManager:
 
         return orderbook
 
-    def get_token_prices(self):
-        price_a = round(
-            self.price_feed.get_price(Token.A),
-            MAX_DECIMALS,
-        )
+    def get_token_prices(self, price: float = None):
+        if price is not None:
+            price_a = price
+        else:
+            price_a = round(
+                self.price_feed.get_price(Token.A),
+                MAX_DECIMALS,
+            )
         price_b = round(1 - price_a, MAX_DECIMALS)
         return {Token.A: price_a, Token.B: price_b}
 

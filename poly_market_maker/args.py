@@ -24,14 +24,6 @@ def get_args(args) -> dict:
     )
 
     parser.add_argument(
-        "--sync-interval",
-        type=int,
-        required=False,
-        default=30,
-        help="The number of seconds in between synchronizations",
-    )
-
-    parser.add_argument(
         "--min-size",
         type=float,
         required=False,
@@ -58,7 +50,7 @@ def get_args(args) -> dict:
         "--gas-strategy",
         type=str,
         default="web3",
-        help="Gas strategy to be used [\"fixed\", \"station\", \"web3\"]",
+        help="Gas strategy to be used ['fixed', 'station', 'web3']",
     )
 
     parser.add_argument("--gas-station-url", type=str, help="Gas station url")

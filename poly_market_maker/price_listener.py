@@ -5,7 +5,6 @@ import threading
 import time
 import websockets
 
-
 class PriceListener:
     def __init__(self, ws_url: str, condition_id: str, callback: callable, debounce_ms: int):
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -65,7 +64,7 @@ class PriceListener:
     def _handle_message(self, data):
         """Parses price and applies debounce"""
         # TODO: Implement actual price extraction logic based on CLOB WS message format
-        # Placeholder: Assuming 'price' field exists in the data
+        # Placeholder: Assuming \'price\' field exists in the data
         new_price = data.get("price")
         market_id = data.get("market_id")
 
@@ -79,8 +78,7 @@ class PriceListener:
         now = time.time() * 1000
         if (now - self.last_trigger_time) >= self.debounce_ms:
             self.last_trigger_time = now
-            self.logger.info(f"Debounce triggered for price {new_price}. Calling callback.")
-            self.callback() # Trigger App.synchronize
+            self.logger.info(f"Debounce triggered for price {new_price}. Calling callback with price.")
+            self.callback(price=new_price) # Trigger App.synchronize with price
         else:
             self.logger.debug(f"Debouncing price update for {market_id}: {new_price}")
-
