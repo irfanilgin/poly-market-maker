@@ -40,13 +40,13 @@ class App:
         if args.simulate:
             # Initialize MockExchange first to get collateral address
             # ShadowBook needs a token_id which is derived from Market, which needs collateral address
-            mock_exchange_instance = MockExchange(shadow_book=None) # Pass None initially for shadow_book
-            
+            mock_exchange_instance = MockExchange(shadow_book=None, host=args.clob_api_url) # Pass None initially for shadow_book
+            token_ids = mock_exchange_instance.get_token_ids(args.condition_id)
             self.market = Market(
                 args.condition_id,
+                token_ids,
                 mock_exchange_instance.get_collateral_address(),
             )
-            
             # Derive token_id for YES outcome (Token.A) using the real collateral address
             # This will ensure the ShadowBook tracks the correct real-world token.
             real_token_id = self.market.token_id(Token.A)
@@ -62,11 +62,13 @@ class App:
                 chain_id=self.web3.eth.chain_id,
                 private_key=args.private_key,
             )
-
+            token_ids = self.clob_api.get_token_ids(args.condition_id)
             self.market = Market(
                 args.condition_id,
                 self.clob_api.get_collateral_address(),
             )
+            
+            self.market.token_ids = {token_ids[Token.A], token_ids[Token.B]}
 
         self.gas_station = GasStation(
             strat=GasStrategy(args.gas_strategy),

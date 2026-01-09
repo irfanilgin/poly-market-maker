@@ -1,40 +1,47 @@
 import logging
 import sys
 import time
+import requests
 from py_clob_client.client import ClobClient, ApiCreds, OrderArgs
 from py_clob_client.exceptions import PolyApiException
 
 from poly_market_maker.utils import randomize_default_price
 from poly_market_maker.constants import OK
 from poly_market_maker.metrics import clob_requests_latency
+from poly_market_maker.token import Token # Added import
 
 DEFAULT_PRICE = 0.5
 
 
 class ClobApi:
-    def __init__(self, host, chain_id, private_key):
+    def __init__(self, host, chain_id, private_key, is_mock: bool = False):
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.client = None
+        self.host = host
 
-        self.client = self._init_client_L1(
-            host=host,
-            chain_id=chain_id,
-            private_key=private_key,
-        )
+        if not is_mock:
+            self.client = self._init_client_L1(
+                host=host,
+                chain_id=chain_id,
+                private_key=private_key,
+            )
 
-        try:
-            api_creds = self.client.derive_api_key()
-            self.logger.debug(f"Api key found: {api_creds.api_key}")
-        except PolyApiException:
-            self.logger.debug("Api key not found. Creating a new one...")
-            api_creds = self.client.create_api_key()
-            self.logger.debug(f"Api key created: {api_creds.api_key}.")
+            try:
+                api_creds = self.client.derive_api_key()
+                self.logger.debug(f"Api key found: {api_creds.api_key}")
+            except PolyApiException:
+                self.logger.debug("Api key not found. Creating a new one...")
+                api_creds = self.client.create_api_key()
+                self.logger.debug(f"Api key created: {api_creds.api_key}.")
 
-        self.client = self._init_client_L2(
-            host=host,
-            chain_id=chain_id,
-            private_key=private_key,
-            creds=api_creds,
-        )
+            self.client = self._init_client_L2(
+                host=host,
+                chain_id=chain_id,
+                private_key=private_key,
+                creds=api_creds,
+            )
+        else:
+            self.logger.info("ClobApi initialized in mock mode.")
 
     def get_address(self):
         return self.client.get_address()
@@ -50,24 +57,32 @@ class ClobApi:
 
     def get_price(self, token_id: int) -> float:
         """
-        Get the current price on the orderbook
+        Get the current price on the orderbook.
+        Returns None if the API call fails.
         """
         self.logger.debug("Fetching midpoint price from the API...")
         start_time = time.time()
         try:
             resp = self.client.get_midpoint(token_id)
+            
+            # Log success metric
             clob_requests_latency.labels(method="get_midpoint", status="ok").observe(
                 (time.time() - start_time)
             )
+            
             if resp.get("mid") is not None:
                 return float(resp.get("mid"))
+                
         except Exception as e:
             self.logger.error(f"Error fetching current price from the CLOB API: {e}")
+            # Log error metric
             clob_requests_latency.labels(method="get_midpoint", status="error").observe(
                 (time.time() - start_time)
             )
-
-        return self._rand_price()
+        
+        # CRITICAL CHANGE: Return None (or raise Error) instead of guessing
+        self.logger.warning(f"Could not fetch price for {token_id}. Returning None.")
+        return None
 
     def _rand_price(self) -> float:
         price = randomize_default_price(DEFAULT_PRICE)
@@ -182,7 +197,7 @@ class ClobApi:
                     "CLOB Keeper address: {}".format(clob_client.get_address())
                 )
                 return clob_client
-        except:
+        except: # Catch all exceptions here for robustness
             self.logger.error("Unable to connect to CLOB API, shutting down!")
             sys.exit(1)
 
@@ -197,7 +212,7 @@ class ClobApi:
                     "CLOB Keeper address: {}".format(clob_client.get_address())
                 )
                 return clob_client
-        except:
+        except: # Catch all exceptions here for robustness
             self.logger.error("Unable to connect to CLOB API, shutting down!")
             sys.exit(1)
 
@@ -217,3 +232,34 @@ class ClobApi:
             "token_id": token_id,
             "id": order_id,
         }
+
+    def get_token_ids(self, condition_id: str) -> dict:
+        """
+        Fetches token IDs (asset IDs) from the CLOB API for a given condition_id.
+        Returns a dictionary with Token.A and Token.B mapped to their respective IDs.
+        """
+        token_ids = {}
+        url = self.host + f"/markets/{condition_id}"
+        try:
+            response = requests.get(url)
+            if response.status_code != 200:
+                self.logger.warning(f"Market details or outcomes not found for condition {condition_id} from CLOB API.")
+            data = response.json()
+            tokens = data.get('tokens', [])
+        
+            for t in tokens:
+                outcome = t.get('outcome', '').lower()
+                if outcome == 'yes':
+                    token_ids['yes'] = t.get('token_id')
+                elif outcome == 'no':
+                    token_ids['no'] = t.get('token_id')
+                        
+        except PolyApiException as e:
+            self.logger.error(f"PolyApiException fetching token_ids for condition {condition_id}: {e}")
+        except Exception as e:
+            self.logger.error(f"Error fetching token_ids from CLOB API for condition {condition_id}: {e}")
+        
+        if len(token_ids) != 2:
+            self.logger.error(f"Failed to get both Token.A and Token.B IDs for condition {condition_id}. Only got: {token_ids}. This might lead to errors.")
+
+        return token_ids

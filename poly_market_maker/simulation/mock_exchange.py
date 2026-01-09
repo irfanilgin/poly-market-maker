@@ -1,4 +1,5 @@
 import logging
+import requests
 from typing import Optional
 
 from poly_market_maker.order import Order, Side
@@ -12,13 +13,14 @@ class MockExchange:
     It provides the same interface as ClobApi but operates entirely in-memory.
     """
 
-    def __init__(self, shadow_book: ShadowBook):
+    def __init__(self, shadow_book: ShadowBook, host: str=None):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.shadow_book = shadow_book
         self._mock_address = "0x" + "2"*40
         self._mock_collateral_address = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
         self._mock_conditional_address = "0x" + "4"*40
         self._mock_exchange_address = "0x" + "5"*40
+        self.host = host
 
     def get_address(self) -> str:
         return self._mock_address
@@ -98,3 +100,54 @@ class MockExchange:
         Returns the current virtual balances from the shadow book.
         """
         return self.shadow_book.get_balances()
+
+    def get_market(self, condition_id: str) -> Optional[dict]:
+        """
+        Mocks fetching market details for a given condition_id.
+        Returns a dictionary similar to what the real CLOB API\"s get_market would return,
+        containing outcomes with assetIds.
+        """
+        if self.shadow_book and str(self.shadow_book.token_id) == str(condition_id): # Simple condition_id check for mock
+            yes_asset_id = self.shadow_book.token_id
+            return {
+                "id": condition_id, # Or market ID, but condition_id is passed
+                "question": f"Mock Market for {condition_id}",
+                "slug": f"mock-market-{condition_id}",
+                "outcomes": [
+                    {"assetId": str(self.shadow_book.token_id)}, # Token.A (YES)
+                    {"assetId": str(CTHelpers.get_token_id(condition_id, self.get_collateral_address(), 1))} # Token.B (NO) - using CTHelpers for mock consistency
+                ]
+            }
+        return None # Return None if market not found in mock
+    
+
+    def get_token_ids(self, condition_id: str) -> dict:
+        """
+        Fetches token IDs (asset IDs) from the CLOB API for a given condition_id.
+        Returns a dictionary with Token.A and Token.B mapped to their respective IDs.
+        """
+        token_ids = {}
+        url = self.host + f"/markets/{condition_id}"
+        try:
+            response = requests.get(url)
+            if response.status_code != 200:
+                self.logger.warning(f"Market details or outcomes not found for condition {condition_id} from CLOB API.")
+            data = response.json()
+            tokens = data.get('tokens', [])
+        
+            for t in tokens:
+                outcome = t.get('outcome', '').lower()
+                if outcome == 'yes':
+                    token_ids['yes'] = t.get('token_id')
+                elif outcome == 'no':
+                    token_ids['no'] = t.get('token_id')
+                        
+        except Exception as e:
+            self.logger.error(f"Error fetching token_ids from CLOB API for condition {condition_id}: {e}")
+        
+        if len(token_ids) != 2:
+            self.logger.error(f"Failed to get both Token.A and Token.B IDs for condition {condition_id}. Only got: {token_ids}. This might lead to errors.")
+
+        return token_ids
+
+

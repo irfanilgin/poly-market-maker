@@ -5,18 +5,15 @@ from poly_market_maker.token import Token
 
 
 class Market:
-    def __init__(self, condition_id: str, collateral_address: str):
+    def __init__(self, condition_id: str, token_ids: dict, collateral_address: str):
         self.logger = logging.getLogger(self.__class__.__name__)
 
         assert isinstance(condition_id, str)
+        assert isinstance(token_ids, dict)
         assert isinstance(collateral_address, str)
 
         self.condition_id = condition_id
-        self.token_ids = {
-            Token.A: CTHelpers.get_token_id(condition_id, collateral_address, 0),
-            Token.B: CTHelpers.get_token_id(condition_id, collateral_address, 1),
-        }
-
+        self.token_ids = {Token.A: token_ids['yes'], Token.B: token_ids['no']}
         self.logger.info(f"Initialized Market: {self}")
 
     def __repr__(self):

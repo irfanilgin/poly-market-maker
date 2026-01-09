@@ -20,14 +20,14 @@ def run_simulation():
         "--rpc-url", "http://mock-rpc.com",
         "--clob-api-url", "http://mock-clob-api.com",
         "--clob-ws-url", "wss://ws-subscriptions-clob.polymarket.com/ws/market", # Real Polymarket WebSocket URL
-        "--websocket-debounce-ms", "100",
+        "--websocket-debounce-ms", "1000",
         "--min-size", "10.0", # Reduced for easier testing
         "--min-tick", "0.01",
         "--refresh-frequency", "1",
         "--gas-strategy", "fixed",
         "--fixed-gas-price", "1",
         "--metrics-server-port", "9008",
-        "--condition-id", "0x6e9f08625902094285915d9061030e2c21949511a2f4705051a37c0f1647413c", # Actual condition_id for demonstration
+        "--condition-id", "0x4e4f77e7dbf4cab666e9a1943674d7ae66348e862df03ea6f44b11eb95731928", # Actual condition_id for demonstration
         "--strategy", "bands", # Using string representation
         "--strategy-config", "./config/bands.json",
         "--simulate", "True"

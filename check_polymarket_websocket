@@ -1,0 +1,52 @@
+import asyncio
+import json
+import websockets
+
+# --- Configuration ---
+WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+TOKEN_ID = "65139230827417363158752884968303867495725894165574887635816574090175320800482"
+
+async def subscribe_to_market():
+    async with websockets.connect(WS_URL, ping_interval=20, ping_timeout=20) as websocket:
+        print(f"Connected to {WS_URL}")
+
+        # Subscribe payload
+        subscribe_message = {
+            "type": "market",
+            "assets_ids": [TOKEN_ID]
+        }
+        await websocket.send(json.dumps(subscribe_message))
+        print(f"Subscribed to Asset ID: {TOKEN_ID}")
+        print("-" * 50)
+
+        try:
+            async for message in websocket:
+                data = json.loads(message)
+                
+                # FIX: Polymarket sends a LIST of events. We must loop through them.
+                if isinstance(data, list):
+                    for event in data:
+                        event_type = event.get('event_type', 'Unknown')
+                        print(f"Event Type: {event_type}")
+                        
+                        # Print the price if available (for price_change events)
+                        if event_type == "price_change":
+                            print(f"Price: {event.get('price')}")
+                        
+                        # Print raw data nicely
+                        print(json.dumps(event, indent=2))
+                        print("-" * 30)
+                else:
+                    # Occasional non-list system messages
+                    print("System Message:", data)
+
+        except websockets.exceptions.ConnectionClosed:
+            print("Connection closed by server.")
+        except Exception as e:
+            print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(subscribe_to_market())
+    except KeyboardInterrupt:
+        print("\nScript stopped by user.")

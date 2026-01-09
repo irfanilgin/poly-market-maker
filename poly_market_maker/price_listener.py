@@ -42,16 +42,12 @@ class PriceListener:
             try:
                 async with websockets.connect(self.ws_url) as ws:
                     self.logger.info(f"Connected to WebSocket at {self.ws_url}")
-                    # TODO: Confirm specific subscription JSON format with user
                     subscription_message = {
-                        "type": "subscribe",
-                        "channels": [
-                            {
-                                "type": "market",
-                                "asset_ids": [str(self.asset_id)] # Subscribing to specific asset_id
-                            }
-                        ]
-                    }
+                            
+                            "type": "market",
+                            "assets_ids": [str(self.asset_id)] # Corrected to assets_ids (plural)
+                        
+                        }
                     await ws.send(json.dumps(subscription_message))
                     self.logger.info(f"Sent subscription: {subscription_message}")
 
@@ -67,7 +63,15 @@ class PriceListener:
         self.logger.info("PriceListener stopped.")
 
     def _handle_message(self, data):
-        """Parses price and applies debounce"""
+        """Parses price and applies debounce. Handles both single messages and lists of messages."""
+        if isinstance(data, list):
+            for item in data:
+                self._handle_single_message(item)
+        else:
+            self._handle_single_message(data)
+
+    def _handle_single_message(self, data):
+        """Processes a single WebSocket message."""
         if data.get("type") == "book":
             book_data = data.get("market")
             if book_data and str(book_data.get("asset_id")) == str(self.asset_id):

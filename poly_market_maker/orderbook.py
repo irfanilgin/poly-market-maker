@@ -135,7 +135,7 @@ class OrderBookManager:
             self.logger.debug("Getting the order book...")
             if self._state.get("orders") is not None:
                 self.logger.debug(
-                    f"Orders retrieved last time: {[order.id for order in self._state['orders']]}"
+                    f"Orders retrieved last time: {[order.id for order in self._state["orders"]]}"
                 )
             self.logger.debug(
                 f"Orders placed since then: {[order.id for order in self._orders_placed]}"
@@ -379,7 +379,7 @@ class OrderBookManager:
                         self._state["orders"] = orders
                     if balances is not None:
                         self._state["balances"] = balances
-                    # self._state = {'orders': orders, 'balances': balances}
+                    # self._state = {"orders": orders, "balances": balances}
                     self._refresh_count += 1
 
                 self._report_order_book_updated()
@@ -388,6 +388,19 @@ class OrderBookManager:
                     self.logger.error("Failed to fetch order book: orders is None")
                     return # Skip this refresh cycle
                 else:
+                    # Dynamically access shadow_book from the app instance via the bound method
+                    shadow_book = None
+                    try:
+                        # self.get_orders_function is bound to app.get_orders
+                        # self.get_orders_function.__self__ is the app instance
+                        if hasattr(self.get_orders_function.__self__, 'shadow_book'):
+                            shadow_book = self.get_orders_function.__self__.shadow_book
+                    except AttributeError:
+                        self.logger.debug("Could not access shadow_book from get_orders_function.__self__")
+
+                    best_bid = shadow_book._market_state.get("best_bid") if shadow_book else 'N/A'
+                    best_ask = shadow_book._market_state.get("best_ask") if shadow_book else 'N/A'
+                    self.logger.info(f"🔎 REAL MARKET CHECK: Best Bid: {best_bid} | Best Ask: {best_ask}")
                     self.logger.debug(
                         f"Fetched the order book"
                         f" (orders: {[order.id for order in orders]}, "
@@ -446,7 +459,7 @@ class OrderBookManager:
         return func
 
     def _thread_cancel_all_orders(
-        self,
+        self, 
         cancel_all_orders_function: Callable[[list[Order]], bool],
         orders: list[Order],
     ):
