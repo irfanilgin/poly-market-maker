@@ -72,37 +72,39 @@ class PriceListener:
 
     def _handle_single_message(self, data):
         """Processes a single WebSocket message."""
-        if data.get("type") == "book":
+        if data.get("event_type") == "book":
             book_data = data.get("market")
-            if book_data and str(book_data.get("asset_id")) == str(self.asset_id):
-                best_bid = float(book_data["bids"][0][0]) if book_data["bids"] else 0.0
-                best_ask = float(book_data["asks"][0][0]) if book_data["asks"] else float("inf")
-                
-                self.logger.info(f"Updating market data: Bid={best_bid}, Ask={best_ask}")
+            # TODO: check if below str() is needed or ids comes as str
+            if book_data == self.condition_id and str(data.get("asset_id")) == str(self.asset_id):
+                last_traded_price = float(data.get("last_trade_price"))             
+                self.logger.info(f"Updating market data: last traded price={last_traded_price}")
                 # Debounce Logic
                 now = time.time() * 1000
                 if (now - self.last_trigger_time) >= self.debounce_ms:
                     self.last_trigger_time = now
                     if self.shadow_book:
-                        self.shadow_book.update_market_data(best_bid=best_bid, best_ask=best_ask)
+                        self.shadow_book.apply_snapshot(data)
                     self.callback()
                 else:
-                    self.logger.debug(f"Debouncing market data update: Bid={best_bid}, Ask={best_ask}")
+                    self.logger.debug(f"Debouncing market data update.")
             else:
                 self.logger.debug(f"Ignoring irrelevant book update: {data}")
-        elif data.get("type") == "price_change":
-            price_change_data = data.get("market")
-            if price_change_data and str(price_change_data.get("asset_id")) == str(self.asset_id):
-                best_bid = float(price_change_data.get("bid"))
-                best_ask = float(price_change_data.get("ask"))
-
+        elif data.get("event_type") == "price_change":
+            price_changes = data.get("price_changes")
+            assert(isinstance(price_changes, list))
+            for price_change_data in price_changes:
+                
+                best_bid = self.shadow_book.get_best_bid()
+                best_ask = self.shadow_book.get_best_ask()
                 self.logger.info(f"Updating market data: Bid={best_bid}, Ask={best_ask}")
                 # Debounce Logic
                 now = time.time() * 1000
                 if (now - self.last_trigger_time) >= self.debounce_ms:
                     self.last_trigger_time = now
                     if self.shadow_book:
-                        self.shadow_book.update_market_data(best_bid=best_bid, best_ask=best_ask)
+                        sync = self.shadow_book.apply_delta(price_change_data)
+                        if sync: self.logger.info(f"Book is synced")
+                        else: self.logger.info(f"desync is detected")
                     self.callback()
                 else:
                     self.logger.debug(f"Debouncing price change update: Bid={best_bid}, Ask={best_ask}")

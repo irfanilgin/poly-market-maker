@@ -398,8 +398,8 @@ class OrderBookManager:
                     except AttributeError:
                         self.logger.debug("Could not access shadow_book from get_orders_function.__self__")
 
-                    best_bid = shadow_book._market_state.get("best_bid") if shadow_book else 'N/A'
-                    best_ask = shadow_book._market_state.get("best_ask") if shadow_book else 'N/A'
+                    best_bid = shadow_book.get_best_bid() if shadow_book else 'N/A'
+                    best_ask = shadow_book.get_best_ask() if shadow_book else 'N/A'
                     self.logger.info(f"🔎 REAL MARKET CHECK: Best Bid: {best_bid} | Best Ask: {best_ask}")
                     self.logger.debug(
                         f"Fetched the order book"

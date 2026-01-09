@@ -68,8 +68,8 @@ async def check_websocket_connection():
     try:
         while True:
             # Periodically check shadow book for updates (optional, PriceListener updates it directly)
-            best_bid = shadow_book._market_state.get("best_bid")
-            best_ask = shadow_book._market_state.get("best_ask")
+            best_bid = shadow_book.get_best_bid()
+            best_ask = shadow_book.get_best_ask()
             if best_bid != 0.0 or best_ask != float("inf"):
                 logger.info(f"Current ShadowBook Market State: Bid={best_bid}, Ask={best_ask}")
             await asyncio.sleep(5) # Keep the script alive

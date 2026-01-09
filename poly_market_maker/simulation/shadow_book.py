@@ -15,19 +15,84 @@ class ShadowBook:
     def __init__(self, token_id: int, initial_collateral_balance: float = 1000.0):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.token_id = token_id
-        self._market_state = {"best_bid": 0.0, "best_ask": float("inf")}
+        self.bids = {} # { 0.20: 7588.26, ... }
+        self.asks = {} # { 0.22: 3856.79, ... }
         self._orders: dict[str, Order] = {}
         self._balances = defaultdict(float)
         self._balances[Collateral] = initial_collateral_balance
         self._balances[Token.A] = 0.0
         self._balances[Token.B] = 0.0
 
-    def update_market_data(self, best_bid: float, best_ask: float):
-        """Updates the live market best bid and ask."""
-        self.logger.debug(f"Updating market data: Bid={best_bid}, Ask={best_ask}")
-        self._market_state["best_bid"] = best_bid
-        self._market_state["best_ask"] = best_ask
-        self.check_fills() # Check for fills immediately after market data update
+    def apply_snapshot(self, snapshot_data):
+        self.bids = {
+            float(x['price']): s
+            for x in snapshot_data.get('bids', [])
+            if (s := float(x['size'])) > 0
+        }
+
+        self.asks = {
+            float(x['price']): s
+            for x in snapshot_data.get('asks', [])
+            if (s := float(x['size'])) > 0
+        }
+
+    def apply_delta(self, delta_item: dict) -> bool:
+        """
+        Updates a single price level. 
+        Returns True if the book is healthy, False if a desync is detected.
+        """
+        try:
+            side = delta_item.get('side')
+            price = float(delta_item.get('price'))
+            size = float(delta_item.get('size'))
+
+            # 1. Update the Local Book
+            target_book = self.bids if side == 'buy' else self.asks
+
+            if size == 0:
+                target_book.pop(price, None)
+            else:
+                target_book[price] = size
+
+            # 2. Sanity Check (Self-Healing)
+            # Verify if our calculated best price matches the server's reported best price.
+            # We use a small epsilon for float comparison.
+            server_best = float(delta_item.get('best_bid' if side == 'buy' else 'best_ask', 0))
+            
+            if server_best > 0:
+                my_best_bid = self.get_best_bid()
+                my_best_ask = self.get_best_ask()
+                check_price = my_best_bid if side == 'buy' else my_best_ask
+                
+                # If deviation > 0.1 cents, flag as desync
+                if abs(check_price - server_best) > 0.001:
+                    # In production, this return value signals the bot to re-fetch the snapshot
+                    return False 
+
+            return True
+
+        except (ValueError, TypeError):
+            # Malformed data package, treat as desync to be safe
+            return False
+
+    def get_best_bid(self):
+        """
+        Returns (best_bid, best_ask)
+        """
+        # Best Bid is the HIGHEST price in bids
+        # Best Ask is the LOWEST price in asks
+        best_bid = max(self.bids.keys()) if self.bids else 0.0
+
+        return best_bid
+    
+    def get_best_ask(self):
+        """
+        Returns (best_bid, best_ask)
+        """
+        # Best Bid is the HIGHEST price in bids
+        best_ask = min(self.asks.keys()) if self.asks else float('inf')
+        
+        return best_ask
 
     def add_virtual_order(self, order: Order) -> str:
         """Adds a virtual order to the in-memory book and returns a simulated order_id."""
@@ -60,9 +125,10 @@ class ShadowBook:
         Assumes we are last in the queue, so fills only occur when the price moves THROUGH our level.
         """
         filled_order_ids = []
+        # TODO: optimize bid ask request save it to a cache
         for order_id, order in self._orders.items():
-            market_bid = self._market_state["best_bid"]
-            market_ask = self._market_state["best_ask"]
+            market_bid = self.get_best_bid("best_bid")
+            market_ask = self.get_best_ask("best_ask")
 
             filled = False
             if order.side == Side.BUY:

@@ -53,7 +53,7 @@ def run_simulation():
     logger.info(f"Placed virtual sell order with ID: {sell_order_id}")
 
     logger.info(f"Open Virtual Orders: {shadow_book.get_open_orders()}")
-    logger.info(f"Current Market State: {shadow_book._market_state}")
+    logger.info(f"Current Market State: {shadow_book.get_best_bid()}")
     
     logger.info(f"Derived Token ID for YES outcome (Token.A): {app.market.token_ids[Token.A]}")
 

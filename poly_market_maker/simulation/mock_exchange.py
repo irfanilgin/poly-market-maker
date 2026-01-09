@@ -38,9 +38,8 @@ class MockExchange:
         """
         Returns the current mid-price from the shadow book\"s market state.
         """
-        market_state = self.shadow_book._market_state
-        best_bid = market_state["best_bid"]
-        best_ask = market_state["best_ask"]
+        best_bid = self.shadow_book.get_best_bid()
+        best_ask = self.shadow_book.get_best_ask()
         if best_bid == 0.0 or best_ask == float("inf"):
             return 0.5 # Default price if no market data yet
         return (best_bid + best_ask) / 2.0
