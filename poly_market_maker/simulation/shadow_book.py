@@ -1,7 +1,7 @@
 import logging
 import uuid
 from collections import defaultdict
-
+import random
 from poly_market_maker.order import Order, Side
 from poly_market_maker.market import Token
 from poly_market_maker.token import Collateral
@@ -54,20 +54,18 @@ class ShadowBook:
             else:
                 target_book[price] = size
 
-            # 2. Sanity Check (Self-Healing)
-            # Verify if our calculated best price matches the server's reported best price.
-            # We use a small epsilon for float comparison.
-            server_best = float(delta_item.get('best_bid' if side == 'buy' else 'best_ask', 0))
-            
-            if server_best > 0:
-                my_best_bid = self.get_best_bid()
-                my_best_ask = self.get_best_ask()
-                check_price = my_best_bid if side == 'buy' else my_best_ask
+            # 2. Sanity Check (Optimized: Random Sampling)
+            # Only check ~1% of updates to save CPU. 
+            # Calculating max() on every tick is too slow.
+            if random.random() < 0.01: 
+                server_best = float(delta_item.get('best_bid' if side == 'buy' else 'best_ask', 0))
                 
-                # If deviation > 0.1 cents, flag as desync
-                if abs(check_price - server_best) > 0.001:
-                    # In production, this return value signals the bot to re-fetch the snapshot
-                    return False 
+                if server_best > 0:
+                    # NOW we pay the cost of finding the max/min
+                    my_best = self.get_best_bid() if side == 'buy' else self.get_best_ask()
+                    
+                    if abs(my_best - server_best) > 0.001:
+                        return False # Desync detected 
 
             return True
 

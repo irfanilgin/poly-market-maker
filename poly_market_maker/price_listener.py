@@ -94,9 +94,6 @@ class PriceListener:
             assert(isinstance(price_changes, list))
             for price_change_data in price_changes:
                 
-                best_bid = self.shadow_book.get_best_bid()
-                best_ask = self.shadow_book.get_best_ask()
-                self.logger.info(f"Updating market data: Bid={best_bid}, Ask={best_ask}")
                 # Debounce Logic
                 now = time.time() * 1000
                 if (now - self.last_trigger_time) >= self.debounce_ms:
