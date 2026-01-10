@@ -82,14 +82,12 @@ class ShadowBook:
         return min(self.asks.keys()) if self.asks else None
 
     def get_mid_price(self):
-        """
-        Returns the midpoint price of the order book or None if the book is incomplete.
-        """
         best_bid = self.get_best_bid()
         best_ask = self.get_best_ask()
         
+        # SAFETY CHECK: If one side is missing, the market is broken.
         if best_bid is None or best_ask is None:
-            return None
+            return None  # Signal to Strategy: "DO NOT TRADE"
             
         return (best_bid + best_ask) / 2
 

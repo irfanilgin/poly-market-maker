@@ -55,7 +55,7 @@ def run_simulation():
     
     logger.info(f"Derived Token ID for YES outcome (Token.A): {app.market.token_ids[Token.A]}")
 
-    logger.info("Simulation running in Shadow Mode. Waiting for real market data...")
+    logger.info("Waiting for real market data...")
     try:
         while True:
             time.sleep(1) # Keep the script alive to listen for WebSocket updates

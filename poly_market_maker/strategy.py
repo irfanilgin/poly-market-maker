@@ -92,7 +92,7 @@ class StrategyManager:
         if price is not None:
             price_a = price
         else:
-            price_a = self.shadow_book.get_mid_price() # CHANGED PRICE SOURCE
+            price_a = self.shadow_book.get_mid_price()
             if price_a is None:
                 self.logger.warning("ShadowBook incomplete. Skipping strategy cycle.")
                 return None

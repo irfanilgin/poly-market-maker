@@ -84,6 +84,7 @@ class PriceListener:
                     self.last_trigger_time = now
                     if self.shadow_book:
                         self.shadow_book.apply_snapshot(data)
+                        self.shadow_book.check_fills()
                     self.callback()
                 else:
                     self.logger.debug(f"Debouncing market data update.")
