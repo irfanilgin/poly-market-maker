@@ -18,7 +18,7 @@ def run_simulation():
     mock_args_list = [
         "--private-key", "0x1234567890123456789012345678901234567890123456789012345678901234",
         "--rpc-url", "http://mock-rpc.com",
-        "--clob-api-url", "http://mock-clob-api.com",
+        "--clob-api-url", "https://clob.polymarket.com",
         "--clob-ws-url", "wss://ws-subscriptions-clob.polymarket.com/ws/market", # Real Polymarket WebSocket URL
         "--websocket-debounce-ms", "1000",
         "--min-size", "10.0", # Reduced for easier testing
@@ -39,8 +39,6 @@ def run_simulation():
     # Access the shadow book and mock exchange directly for demonstration
     shadow_book = app.shadow_book
     mock_exchange = app.clob_api
-
-    logger.info(f"Initial Virtual Balances: {shadow_book.get_balances()}")
 
     # Simulate placing a buy order
     buy_order = Order(size=10.0, price=0.49, side=Side.BUY, token=Token.A)
@@ -65,7 +63,6 @@ def run_simulation():
         logger.info("Simulation stopped by user.")
     
     logger.info("\n--- Simulation Complete ---")
-    logger.info(f"Final Virtual Balances: {shadow_book.get_balances()}")
     logger.info(f"Final Open Virtual Orders: {shadow_book.get_open_orders()}")
 
 if __name__ == "__main__":

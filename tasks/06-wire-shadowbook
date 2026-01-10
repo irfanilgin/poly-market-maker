@@ -1,0 +1,15 @@
+# Task: Wire ShadowBook to Main Bot (Layer 1 Only)
+
+**Context:**
+`ShadowBook` class is not a simulation feature. It will be part of the live execution to keep the state of the orderbook structure in memory to reduce the delay due to network latency during the execution. We have a `ShadowBook` class ready. We need to integrate them so the bot maintains an internal L2 book.
+
+**Objectives:**
+1.  **Update `__init__`:**
+    * Import `ShadowBook`.
+    * Initialize `self.shadow_book = ShadowBook()` inside the main bot class.
+    * Initialize `self.last_strategy_run = 0` (timestamp).
+    * Initialize `self.strategy_interval = 1` (seconds).
+
+
+**Verification:**
+The bot should run and receive messages without crashing, silently updating its internal ShadowBook.

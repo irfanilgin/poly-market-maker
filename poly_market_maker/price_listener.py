@@ -98,12 +98,8 @@ class PriceListener:
                 now = time.time() * 1000
                 if (now - self.last_trigger_time) >= self.debounce_ms:
                     self.last_trigger_time = now
-                    if self.shadow_book:
-                        sync = self.shadow_book.apply_delta(price_change_data)
-                        if sync: self.logger.info(f"Book is synced")
-                        else: self.logger.info(f"desync is detected")
-                    self.callback()
+                    self.callback() # Trigger Strategy
                 else:
-                    self.logger.debug(f"Debouncing price change update: Bid={best_bid}, Ask={best_ask}")
+                    self.logger.debug("Debouncing strategy trigger only.")
         else:
             self.logger.debug(f"Ignoring unknown WS message type: {data.get("type")}")

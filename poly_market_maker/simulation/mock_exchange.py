@@ -3,7 +3,7 @@ import requests
 from typing import Optional
 
 from poly_market_maker.order import Order, Side
-from poly_market_maker.market import Token
+from poly_market_maker.token import Token, Collateral
 from poly_market_maker.simulation.shadow_book import ShadowBook
 
 
@@ -21,6 +21,10 @@ class MockExchange:
         self._mock_conditional_address = "0x" + "4"*40
         self._mock_exchange_address = "0x" + "5"*40
         self.host = host
+        self.collateral_balance = 10000
+        self.token_A_balance = 100
+        self.token_B_balance = 100
+
 
     def get_address(self) -> str:
         return self._mock_address
@@ -98,7 +102,9 @@ class MockExchange:
         """
         Returns the current virtual balances from the shadow book.
         """
-        return self.shadow_book.get_balances()
+        return {Collateral: self.collateral_balance,
+                Token.A: self.token_A_balance,
+                Token.B: self.token_B_balance,}
 
     def get_market(self, condition_id: str) -> Optional[dict]:
         """
@@ -114,7 +120,7 @@ class MockExchange:
                 "slug": f"mock-market-{condition_id}",
                 "outcomes": [
                     {"assetId": str(self.shadow_book.token_id)}, # Token.A (YES)
-                    {"assetId": str(CTHelpers.get_token_id(condition_id, self.get_collateral_address(), 1))} # Token.B (NO) - using CTHelpers for mock consistency
+                    {"assetId": str(self.get_token_ids(condition_id)["no"])} # Token.B (NO) - using CTHelpers for mock consistency
                 ]
             }
         return None # Return None if market not found in mock

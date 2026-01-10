@@ -12,16 +12,12 @@ class ShadowBook:
     The core engine for simulating an in-memory order book and tracking virtual inventory.
     """
 
-    def __init__(self, token_id: int, initial_collateral_balance: float = 1000.0):
+    def __init__(self, token_id: int):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.token_id = token_id
         self.bids = {} # { 0.20: 7588.26, ... }
         self.asks = {} # { 0.22: 3856.79, ... }
         self._orders: dict[str, Order] = {}
-        self._balances = defaultdict(float)
-        self._balances[Collateral] = initial_collateral_balance
-        self._balances[Token.A] = 0.0
-        self._balances[Token.B] = 0.0
 
     def apply_snapshot(self, snapshot_data):
         self.bids = {
@@ -140,18 +136,6 @@ class ShadowBook:
             
             if filled:
                 self.logger.info(f"Virtual Fill: Order {order_id} ({order.side.value} {order.size} @ {order.price}) FILLED!")
-                
-                # Update virtual balances based on fill
-                if order.side == Side.BUY:
-                    # Decrement collateral, increment token A/B
-                    self._balances[Collateral] -= order.size * order.price # Assuming collateral is used for buys
-                    self._balances[order.token] += order.size
-                elif order.side == Side.SELL:
-                    # Increment collateral, decrement token A/B
-                    self._balances[Collateral] += order.size * order.price # Assuming collateral received for sells
-                    self._balances[order.token] -= order.size
-                
-                self.logger.info(f"New Virtual Inventory: {self.get_balances()}")
                 filled_order_ids.append(order_id)
 
         for order_id in filled_order_ids:

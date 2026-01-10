@@ -52,7 +52,7 @@ class App:
             real_token_id = self.market.token_id(Token.A)
             self.logger.info(f"Derived real token_id for Token.A (YES outcome): {real_token_id}")
 
-            self.shadow_book = ShadowBook(token_id=real_token_id, initial_collateral_balance=100000.0)
+            self.shadow_book = ShadowBook(token_id=real_token_id)
             # Now re-initialize MockExchange with the actual shadow_book
             self.clob_api = MockExchange(shadow_book=self.shadow_book)
             self.logger.info("Initialized MockExchange for simulation mode with real token_id.")
@@ -69,6 +69,10 @@ class App:
             )
             
             self.market.token_ids = {token_ids[Token.A], token_ids[Token.B]}
+            self.shadow_book = ShadowBook(token_id=self.market.token_id(Token.A)) # Initialize in live mode
+
+        self.last_strategy_run = 0
+        self.strategy_interval = args.refresh_frequency
 
         self.gas_station = GasStation(
             strat=GasStrategy(args.gas_strategy),
@@ -101,14 +105,13 @@ class App:
             self.order_book_manager,
         )
 
-        # TODO: understand asset_id=real_token_id if args.simulate else None
         self.price_listener = PriceListener(
             ws_url=args.clob_ws_url,
             condition_id=args.condition_id,
             callback=self.synchronize,
             debounce_ms=args.websocket_debounce_ms,
-            shadow_book=self.shadow_book if args.simulate else None,
-            asset_id=real_token_id if args.simulate else None # Pass the derived real_token_id for subscription
+            shadow_book=self.shadow_book,
+            asset_id=real_token_id if args.simulate else self.market.token_id(Token.A) # Pass the derived real_token_id for subscription
         )
         self.price_listener.start()
 
