@@ -3,9 +3,9 @@ import json
 import logging
 
 from poly_market_maker.orderbook import OrderBookManager
-from poly_market_maker.price_feed import PriceFeed
 from poly_market_maker.token import Token, Collateral
 from poly_market_maker.constants import MAX_DECIMALS
+from poly_market_maker.simulation.shadow_book import ShadowBook # NEW IMPORT
 
 from poly_market_maker.strategies.base_strategy import BaseStrategy
 from poly_market_maker.strategies.amm_strategy import AMMStrategy
@@ -30,7 +30,7 @@ class StrategyManager:
         self,
         strategy: str,
         config_path: str,
-        price_feed: PriceFeed,
+        shadow_book: ShadowBook, # CHANGED PARAMETER
         order_book_manager: OrderBookManager,
     ) -> BaseStrategy:
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -38,7 +38,7 @@ class StrategyManager:
         with open(config_path) as fh:
             config = json.load(fh)
 
-        self.price_feed = price_feed
+        self.shadow_book = shadow_book # CHANGED ASSIGNMENT
         self.order_book_manager = order_book_manager
 
         match Strategy(strategy):
@@ -59,6 +59,9 @@ class StrategyManager:
             return
 
         token_prices = self.get_token_prices(price=price)
+        if token_prices is None: # ADDED SAFETY CHECK
+            return # Skip cycle
+
         self.logger.debug(f"{token_prices}")
         (orders_to_cancel, orders_to_place) = self.strategy.get_orders(
             orderbook, token_prices
@@ -89,10 +92,10 @@ class StrategyManager:
         if price is not None:
             price_a = price
         else:
-            price_a = round(
-                self.price_feed.get_price(Token.A),
-                MAX_DECIMALS,
-            )
+            price_a = self.shadow_book.get_mid_price() # CHANGED PRICE SOURCE
+            if price_a is None:
+                self.logger.warning("ShadowBook incomplete. Skipping strategy cycle.")
+                return None
         price_b = round(1 - price_a, MAX_DECIMALS)
         return {Token.A: price_a, Token.B: price_b}
 

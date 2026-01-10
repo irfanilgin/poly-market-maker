@@ -71,22 +71,27 @@ class ShadowBook:
 
     def get_best_bid(self):
         """
-        Returns (best_bid, best_ask)
+        Returns the best bid price or None if no bids.
         """
-        # Best Bid is the HIGHEST price in bids
-        # Best Ask is the LOWEST price in asks
-        best_bid = max(self.bids.keys()) if self.bids else 0.0
-
-        return best_bid
+        return max(self.bids.keys()) if self.bids else None
     
     def get_best_ask(self):
         """
-        Returns (best_bid, best_ask)
+        Returns the best ask price or None if no asks.
         """
-        # Best Bid is the HIGHEST price in bids
-        best_ask = min(self.asks.keys()) if self.asks else float('inf')
+        return min(self.asks.keys()) if self.asks else None
+
+    def get_mid_price(self):
+        """
+        Returns the midpoint price of the order book or None if the book is incomplete.
+        """
+        best_bid = self.get_best_bid()
+        best_ask = self.get_best_ask()
         
-        return best_ask
+        if best_bid is None or best_ask is None:
+            return None
+            
+        return (best_bid + best_ask) / 2
 
     def add_virtual_order(self, order: Order) -> str:
         """Adds a virtual order to the in-memory book and returns a simulated order_id."""
@@ -110,8 +115,12 @@ class ShadowBook:
         return list(self._orders.values())
 
     def get_balances(self) -> dict:
-        """Returns the current virtual balances."""
-        return dict(self._balances)
+        """
+        Returns the current virtual balances.
+        """
+        # TODO: Implement actual balance tracking in ShadowBook for simulation
+        # For now, returning a dummy value as per MockExchange's current implementation
+        return {Collateral: 10000.0, Token.A: 0.0, Token.B: 0.0} # Return a dict with balances
 
     def check_fills(self):
         """
@@ -121,18 +130,20 @@ class ShadowBook:
         filled_order_ids = []
         # TODO: optimize bid ask request save it to a cache
         for order_id, order in self._orders.items():
-            market_bid = self.get_best_bid("best_bid")
-            market_ask = self.get_best_ask("best_ask")
+            market_bid = self.get_best_bid()
+            market_ask = self.get_best_ask()
 
             filled = False
-            if order.side == Side.BUY:
-                # Buy order at P fills if market_ask drops BELOW P
-                if market_ask < order.price:
-                    filled = True
-            elif order.side == Side.SELL:
-                # Sell order at P fills if market_bid rises ABOVE P
-                if market_bid > order.price:
-                    filled = True
+            # Only fill if both sides of the market exist
+            if market_bid is not None and market_ask is not None:
+                if order.side == Side.BUY:
+                    # Buy order at P fills if market_ask drops BELOW P
+                    if market_ask < order.price:
+                        filled = True
+                elif order.side == Side.SELL:
+                    # Sell order at P fills if market_bid rises ABOVE P
+                    if market_bid > order.price:
+                        filled = True
             
             if filled:
                 self.logger.info(f"Virtual Fill: Order {order_id} ({order.side.value} {order.size} @ {order.price}) FILLED!")

@@ -3,7 +3,7 @@ from prometheus_client import start_http_server
 import time
 
 from poly_market_maker.args import get_args
-from poly_market_maker.price_feed import PriceFeedClob
+# REMOVED: from poly_market_maker.price_feed import PriceFeedClob
 from poly_market_maker.gas import GasStation, GasStrategy
 from poly_market_maker.utils import setup_logging, setup_web3
 from poly_market_maker.order import Order, Side
@@ -82,7 +82,7 @@ class App:
         )
         self.contracts = Contracts(self.web3, self.gas_station)
 
-        self.price_feed = PriceFeedClob(self.market, self.clob_api)
+        # REMOVED: self.price_feed = PriceFeedClob(self.market, self.clob_api)
 
         self.order_book_manager = OrderBookManager(
             args.refresh_frequency, max_workers=1
@@ -101,7 +101,7 @@ class App:
         self.strategy_manager = StrategyManager(
             args.strategy,
             args.strategy_config,
-            self.price_feed,
+            self.shadow_book, # CHANGED PARAMETER
             self.order_book_manager,
         )
 
