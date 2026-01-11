@@ -114,6 +114,13 @@ class OrderBookManager:
 
         self.cancel_all_orders_function = cancel_all_orders_function
 
+    # Add this inside OrderBookManager class
+    @property
+    def has_pending_cancels(self) -> bool:
+        """Returns True if there are orders currently being cancelled."""
+        with self._lock:
+            return len(self._order_ids_cancelling) > 0
+
     def on_update(self, on_update_function: Callable):
         assert callable(on_update_function)
 
@@ -198,31 +205,51 @@ class OrderBookManager:
         wait([result])
 
     def place_orders(self, orders: list[Order]):
-        """Places new orders. Order placement will happen in a background thread.
-
+        """Places new orders asynchronously.
+        
         Args:
-            new_orders: List of new orders to place.
+            orders: List of new orders to place.
         """
         assert isinstance(orders, list)
         assert callable(self.place_order_function)
 
+        # 1. Increment counter safely
         with self._lock:
             self._currently_placing_orders += len(orders)
 
         self._report_order_book_updated()
 
-        results = [
-            self._executor.submit(
-                self._thread_place_order(self.place_order_function, order)
+        for order in orders:
+            # 2. FIXED SYNTAX: Pass the function and args separately
+            # Do NOT use parenthesis () after _thread_place_order
+            future = self._executor.submit(
+                self._thread_place_order,   # Function reference
+                self.place_order_function,  # Arg 1
+                order                       # Arg 2
             )
-            for order in orders
-        ]
-        wait(results)
+            
+            # 3. Add Callback: This runs automatically when the thread finishes
+            # It replaces 'wait(results)' so we don't block the main loop
+            future.add_done_callback(self._on_order_complete)
+
+    def _on_order_complete(self, future):
+        """
+        Callback handler. Runs in a background thread when an order finishes.
+        """
+        try:
+            # Check if the thread raised an exception (e.g. API Error)
+            future.result() 
+        except Exception as e:
+            self.logger.error(f"Order placement failed in background: {e}", exc_info=True)
+        finally:
+            # 4. Cleanup: Always decrement the counter, success or fail
+            with self._lock:
+                self._currently_placing_orders = max(0, self._currently_placing_orders - 1)
 
     def cancel_orders(self, orders: list[Order]):
         """
-        Cancels existing orders. Order cancellation will happen in a background thread.
-
+        Cancels existing orders asynchronously.
+        
         Args:
             orders: List of orders to cancel.
         """
@@ -230,65 +257,85 @@ class OrderBookManager:
         assert isinstance(orders, list)
         assert callable(self.cancel_order_function)
 
+        # 1. Mark orders as 'cancelling' so we don't try to double-cancel
         with self._lock:
             for order in orders:
                 self._order_ids_cancelling.add(order.id)
 
         self._report_order_book_updated()
 
-        results = [
-            self._executor.submit(
-                self._thread_cancel_order(self.cancel_order_function, order)
+        for order in orders:
+            # 2. FIXED SYNTAX: Pass function and args separately
+            future = self._executor.submit(
+                self._thread_cancel_order,    # Function reference
+                self.cancel_order_function,   # Arg 1
+                order                         # Arg 2
             )
-            for order in orders
-        ]
-        wait(results)
+            
+            # 3. Add Callback with Closure
+            # We must pass the specific order.id to the callback so we know which one to clean up.
+            # "oid=order.id" captures the current ID safely.
+            future.add_done_callback(lambda f, oid=order.id: self._on_cancel_complete(f, oid))
+
+    def _on_cancel_complete(self, future, order_id):
+        """
+        Callback handler. Runs when a cancel thread finishes.
+        """
+        try:
+            # Check for exceptions (e.g., Network Error during cancel)
+            future.result()
+        except Exception as e:
+            self.logger.error(f"Order cancellation failed for {order_id}: {e}", exc_info=True)
+        finally:
+            # 4. Cleanup: CRITICAL
+            # We MUST remove the ID from the set, otherwise the bot thinks
+            # it is still cancelling this order forever.
+            with self._lock:
+                self._order_ids_cancelling.discard(order_id)
 
     def cancel_all_orders(self):
         """
-        Cancels all existing orders
+        Cancels all existing orders asynchronously.
         """
-        while True:
-            orders = self.get_order_book().orders
-            if len(orders) == 0:
-                self.logger.info("No open orders on order book.")
-                break
-            order_ids = [order.id for order in orders]
-            with self._lock:
-                for order_id in order_ids:
-                    self._order_ids_cancelling.add(order_id)
-
-            self.logger.info(f"Cancelling {len(order_ids)} open orders...")
-
-            # Cancel all orders
-            result = self._executor.submit(
-                self._thread_cancel_all_orders(self.cancel_all_orders_function, orders)
-            )
-            wait([result])
-            self.wait_for_stable_order_book()
-            time.sleep(2)
-
-        # Wait for the background thread to refresh the order book twice, so we are 99.9% sure
-        # that there are no orders left in the backend.
-        #
-        # The reason we wait twice for the order book refresh is that the first refresh might have
-        # started still while the orders were still being cancelled. By waiting twice we are sure that the
-        # second refresh has started after the whole order cancellation process was already finished.
-        self.logger.info(
-            "No open orders. Waiting for the order book to refresh twice just to be sure..."
-        )
-        self.wait_for_order_book_refresh()
-        self.wait_for_order_book_refresh()
-
+        # 1. Get current orders
         orders = self.get_order_book().orders
-        if len(orders) > 0:
-            # TODO: not repeating the cancel_all since it could lead to an infinite recursion
-            # self.logger.info(f"There are still {len(orders)} open orders! Repeating the cancel_all_orders function!")
-            # return self.cancel_all_orders()
-            self.logger.info(f"There are still {len(orders)} open keeper orders!")
+        if len(orders) == 0:
+            self.logger.info("No open orders on order book.")
             return
 
-        self.logger.info("All orders successfully cancelled!")
+        self.logger.info(f"Cancelling {len(orders)} open orders...")
+
+        # 2. Mark all as cancelling immediately so we don't try to touch them
+        with self._lock:
+            for order in orders:
+                self._order_ids_cancelling.add(order.id)
+
+        # 3. FIXED SYNTAX: Submit to background thread properly
+        future = self._executor.submit(
+            self._thread_cancel_all_orders,   # Function reference
+            self.cancel_all_orders_function,  # Arg 1
+            orders                            # Arg 2
+        )
+
+        # 4. Add Callback for cleanup
+        # We pass the list of orders to the callback so we can clear their IDs 
+        # from the 'cancelling' set once the job is done.
+        future.add_done_callback(lambda f, ords=orders: self._on_cancel_all_complete(f, ords))
+
+    def _on_cancel_all_complete(self, future, orders):
+        """
+        Callback handler. Runs when the 'cancel all' thread finishes.
+        """
+        try:
+            future.result() # Check for exceptions
+            self.logger.info("Cancel All signal sent successfully.")
+        except Exception as e:
+            self.logger.error(f"Failed to cancel all orders: {e}", exc_info=True)
+        finally:
+            # 5. Cleanup: Remove the IDs from the tracking set
+            with self._lock:
+                for order in orders:
+                    self._order_ids_cancelling.discard(order.id)
 
     def wait_for_order_cancellation(self):
         """Wait until no background order cancellation takes place."""

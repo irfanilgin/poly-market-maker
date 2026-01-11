@@ -2,6 +2,7 @@ import logging
 import uuid
 from collections import defaultdict
 import random
+import time
 from poly_market_maker.order import Order, Side
 from poly_market_maker.market import Token
 from poly_market_maker.token import Collateral
@@ -18,6 +19,7 @@ class ShadowBook:
         self.bids = {} # { 0.20: 7588.26, ... }
         self.asks = {} # { 0.22: 3856.79, ... }
         self._orders: dict[str, Order] = {}
+        self.last_update_time = None
 
     def apply_snapshot(self, snapshot_data):
         self.bids = {
@@ -31,12 +33,14 @@ class ShadowBook:
             for x in snapshot_data.get('asks', [])
             if (s := float(x['size'])) > 0
         }
+        self.last_update_time = time.time()
 
     def apply_delta(self, delta_item: dict) -> bool:
         """
         Updates a single price level. 
         Returns True if the book is healthy, False if a desync is detected.
         """
+        
         try:
             side = delta_item.get('side')
             price = float(delta_item.get('price'))
@@ -62,7 +66,8 @@ class ShadowBook:
                     
                     if abs(my_best - server_best) > 0.001:
                         return False # Desync detected 
-
+            # Only update time after successful parsing, applying, and verifying
+            self.last_update_time = time.time()
             return True
 
         except (ValueError, TypeError):

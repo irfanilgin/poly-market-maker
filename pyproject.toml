@@ -16,6 +16,7 @@ py-clob-client = "^0.34.4"
 py-order-utils = "^0.3.2"
 pyyaml = "^6.0.3"
 websockets = "^12.0"
+fpdf = "^1.7.2"
 
 
 [build-system]

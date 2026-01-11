@@ -57,8 +57,8 @@ class PriceListener:
                         self._handle_message(json.loads(message))
             except websockets.exceptions.ConnectionClosedOK:
                 self.logger.info("WebSocket connection closed cleanly.")
-            except Exception as e:
-                self.logger.error(f"WebSocket error: {e}. Reconnecting in 5 seconds...")
+            except BaseException as e:
+                self.logger.error(f"WebSocket error in loop: {type(e).__name__}: {str(e)}. Reconnecting in 5 seconds...", exc_info=True)
                 await asyncio.sleep(5) # Reconnect on error
         self.logger.info("PriceListener stopped.")
 
@@ -76,16 +76,25 @@ class PriceListener:
             book_data = data.get("market")
             # TODO: check if below str() is needed or ids comes as str
             if book_data == self.condition_id and str(data.get("asset_id")) == str(self.asset_id):
-                last_traded_price = float(data.get("last_trade_price"))             
+                #TODO: fix the zero price issue below
+                raw_price = data.get("last_trade_price", "")
+                last_traded_price = float(raw_price) if raw_price else 0.0          
                 self.logger.info(f"Updating market data: last traded price={last_traded_price}")
                 # Debounce Logic
                 now = time.time() * 1000
                 if (now - self.last_trigger_time) >= self.debounce_ms:
                     self.last_trigger_time = now
-                    if self.shadow_book:
-                        self.shadow_book.apply_snapshot(data)
-                        self.shadow_book.check_fills()
-                    self.callback()
+                    try:
+                        if self.shadow_book:
+                            self.logger.debug("Applying snapshot to ShadowBook...")
+                            self.shadow_book.apply_snapshot(data)
+                            self.logger.debug("Checking fills in ShadowBook...")
+                            self.shadow_book.check_fills()
+                        
+                        self.logger.debug("Triggering strategy callback...")
+                        self.callback()
+                    except BaseException as e:
+                        self.logger.error(f"Error in strategy/book processing: {type(e).__name__}: {str(e)}", exc_info=True)
                 else:
                     self.logger.debug(f"Debouncing market data update.")
             else:
@@ -99,7 +108,10 @@ class PriceListener:
                 now = time.time() * 1000
                 if (now - self.last_trigger_time) >= self.debounce_ms:
                     self.last_trigger_time = now
-                    self.callback() # Trigger Strategy
+                    try:
+                        self.callback() # Trigger Strategy
+                    except Exception as e:
+                        self.logger.error(f"Error in strategy callback (price change): {e}", exc_info=True)
                 else:
                     self.logger.debug("Debouncing strategy trigger only.")
         else:

@@ -1,6 +1,8 @@
 from enum import Enum
 import json
 import logging
+import traceback
+
 
 from poly_market_maker.orderbook import OrderBookManager
 from poly_market_maker.token import Token, Collateral
@@ -40,6 +42,7 @@ class StrategyManager:
 
         self.shadow_book = shadow_book # CHANGED ASSIGNMENT
         self.order_book_manager = order_book_manager
+        self.bootstrapped = False
 
         match Strategy(strategy):
             case Strategy.AMM:
@@ -50,30 +53,61 @@ class StrategyManager:
                 raise Exception("Invalid strategy")
 
     def synchronize(self, price: float = None):
-        self.logger.debug("Synchronizing strategy...")
-
         try:
-            orderbook = self.get_order_book()
-        except Exception as e:
-            self.logger.error(f"{e}")
-            return
+            # 1. BOOTSTRAP CHECK (Keep this as is)
+            if not self.bootstrapped:
+                if not self.shadow_book.last_update_time:
+                    self.logger.info("ShadowBook not yet synchronized (no update time). Waiting...")
+                    return
+                self.bootstrapped = True
+                self.logger.info("ShadowBook bootstrapped!")
 
-        token_prices = self.get_token_prices(price=price)
-        if token_prices is None: # ADDED SAFETY CHECK
-            return # Skip cycle
+            # 2. SAFETY CHECK: BUSY WAIT (New!)
+            # If the OrderBookManager is busy cancelling, we MUST wait.
+            # Otherwise, we will calculate orders based on stale data 
+            # or try to spend locked funds.
+            if self.order_book_manager.has_pending_cancels:
+                self.logger.debug("Pending cancels in progress. Skipping strategy cycle.")
+                return
 
-        self.logger.debug(f"{token_prices}")
-        (orders_to_cancel, orders_to_place) = self.strategy.get_orders(
-            orderbook, token_prices
-        )
+            self.logger.debug("Synchronizing strategy...")
 
-        self.logger.debug(f"order to cancel: {len(orders_to_cancel)}")
-        self.logger.debug(f"order to place: {len(orders_to_place)}")
+            try:
+                orderbook = self.get_order_book()
+            except Exception as e:
+                self.logger.error(f"{e}")
+                return
 
-        self.cancel_orders(orders_to_cancel)
-        self.place_orders(orders_to_place)
+            token_prices = self.get_token_prices(price=price)
+            if token_prices is None:
+                return 
 
-        self.logger.debug("Synchronized strategy!")
+            (orders_to_cancel, orders_to_place) = self.strategy.get_orders(
+                orderbook, token_prices
+            )
+
+            # 3. EXECUTION LOGIC
+            # If we have orders to cancel, we ONLY cancel this tick.
+            # We do not place orders yet, because the funds are not freed.
+            if len(orders_to_cancel) > 0:
+                self.logger.info(f"Cancelling {len(orders_to_cancel)} orders.")
+                self.cancel_orders(orders_to_cancel)
+                # We return here. The next tick will see 'has_pending_cancels=True' 
+                # and wait. The tick after that will see the funds freed and place orders.
+                return 
+
+            if len(orders_to_place) > 0:
+                self.logger.info(f"Placing {len(orders_to_place)} orders.")
+                self.place_orders(orders_to_place)
+
+            self.logger.debug("Synchronized strategy!")
+
+        except BaseException as e:
+            self.logger.error(f"CRITICAL ERROR in synchronize: {type(e).__name__}: {str(e)}")
+            #TODO: do I need to remove the traceback.format_exc()?
+            self.logger.error(traceback.format_exc())
+            # raise e  <-- Careful: Raising here might crash the whole main loop. 
+            # usually you just want to log it and retry next tick.
 
     def get_order_book(self):
         orderbook = self.order_book_manager.get_order_book()

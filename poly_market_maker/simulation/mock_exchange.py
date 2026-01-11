@@ -1,5 +1,6 @@
 import logging
 import requests
+import time
 from typing import Optional
 
 from poly_market_maker.order import Order, Side
@@ -21,9 +22,9 @@ class MockExchange:
         self._mock_conditional_address = "0x" + "4"*40
         self._mock_exchange_address = "0x" + "5"*40
         self.host = host
-        self.collateral_balance = 10000
-        self.token_A_balance = 100
-        self.token_B_balance = 100
+        self.collateral_balance = 10000.0
+        self.token_A_balance = 100.0
+        self.token_B_balance = 100.0
 
 
     def get_address(self) -> str:
@@ -72,6 +73,7 @@ class MockExchange:
         """
         Places a virtual order in the shadow book.
         """
+        time.sleep(0.2)
         # Ensure token_id matches the shadow book\"s token_id, or handle multiple markets if needed
         if token_id != self.shadow_book.token_id:
             self.logger.error(f"Attempted to place order for token_id {token_id} on shadow book for {self.shadow_book.token_id}")
@@ -87,6 +89,7 @@ class MockExchange:
         """
         Cancels a virtual order in the shadow book.
         """
+        time.sleep(0.2)
         return self.shadow_book.cancel_virtual_order(order_id)
 
     def cancel_all_orders(self) -> bool:
