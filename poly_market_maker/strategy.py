@@ -123,14 +123,40 @@ class StrategyManager:
         return orderbook
 
     def get_token_prices(self, price: float = None):
+        """
+        Determines the current market price safely.
+        Priority:
+        1. Override 'price' argument (if provided)
+        2. ShadowBook 'last_trade_price' (if valid)
+        3. ShadowBook 'mid_price' (calculated from best bid/ask)
+        """
+        price_a = None
+
+        # Priority 1: Argument
         if price is not None:
             price_a = price
-        else:
-            price_a = self.shadow_book.get_mid_price()
-            if price_a is None:
-                self.logger.warning("ShadowBook incomplete. Skipping strategy cycle.")
-                return None
+        
+        # Priority 2: ShadowBook Last Trade (Fixed 'safe float' logic)
+        if price_a is None:
+            last_trade = self.shadow_book.last_trade_price
+            if last_trade and last_trade > 0:
+                price_a = last_trade
+
+        # Priority 3: ShadowBook Mid Price (Fallback)
+        if price_a is None or price_a == 0:
+            mid = self.shadow_book.get_mid_price()
+            if mid and mid > 0:
+                price_a = mid
+        
+        # Validation
+        if price_a is None or price_a <= 0:
+            self.logger.warning("Market price missing or zero. Cannot run strategy.")
+            return None
+
+        # Rounding
+        price_a = round(price_a, MAX_DECIMALS)
         price_b = round(1 - price_a, MAX_DECIMALS)
+        
         return {Token.A: price_a, Token.B: price_b}
 
     def cancel_orders(self, orders_to_cancel):

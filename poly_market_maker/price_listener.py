@@ -72,47 +72,58 @@ class PriceListener:
 
     def _handle_single_message(self, data):
         """Processes a single WebSocket message."""
-        if data.get("event_type") == "book":
+        event_type = data.get("event_type")
+
+        # --- CASE 1: SNAPSHOT (Book) ---
+        if event_type == "book":
             book_data = data.get("market")
-            # TODO: check if below str() is needed or ids comes as str
+            
+            # Check asset/condition ID match
             if book_data == self.condition_id and str(data.get("asset_id")) == str(self.asset_id):
-                #TODO: fix the zero price issue below
+                
+                # 1. ALWAYS Update State (Data Integrity)
                 raw_price = data.get("last_trade_price", "")
-                last_traded_price = float(raw_price) if raw_price else 0.0          
-                self.logger.info(f"Updating market data: last traded price={last_traded_price}")
-                # Debounce Logic
-                now = time.time() * 1000
-                if (now - self.last_trigger_time) >= self.debounce_ms:
-                    self.last_trigger_time = now
-                    try:
-                        if self.shadow_book:
-                            self.logger.debug("Applying snapshot to ShadowBook...")
-                            self.shadow_book.apply_snapshot(data)
-                            self.logger.debug("Checking fills in ShadowBook...")
-                            self.shadow_book.check_fills()
-                        
-                        self.logger.debug("Triggering strategy callback...")
-                        self.callback()
-                    except BaseException as e:
-                        self.logger.error(f"Error in strategy/book processing: {type(e).__name__}: {str(e)}", exc_info=True)
-                else:
-                    self.logger.debug(f"Debouncing market data update.")
+                
+                # Update ShadowBook
+                self.shadow_book.last_trade_price = raw_price
+                self.logger.info(f"Updating market data: last traded price={self.shadow_book.last_trade_price}")
+                
+                self.logger.debug("Applying snapshot to ShadowBook...")
+                self.shadow_book.apply_snapshot(data)
+                
+                self.logger.debug("Checking fills in ShadowBook...")
+                self.shadow_book.check_fills()
+
+                # 2. Debounce Action (Strategy Execution)
+                self._try_trigger_strategy()
+
             else:
                 self.logger.debug(f"Ignoring irrelevant book update: {data}")
-        elif data.get("event_type") == "price_change":
+
+        # --- CASE 2: DELTA (Price Change) ---
+        elif event_type == "price_change":
             price_changes = data.get("price_changes")
-            assert(isinstance(price_changes, list))
-            for price_change_data in price_changes:
-                
-                # Debounce Logic
-                now = time.time() * 1000
-                if (now - self.last_trigger_time) >= self.debounce_ms:
-                    self.last_trigger_time = now
-                    try:
-                        self.callback() # Trigger Strategy
-                    except Exception as e:
-                        self.logger.error(f"Error in strategy callback (price change): {e}", exc_info=True)
-                else:
-                    self.logger.debug("Debouncing strategy trigger only.")
+            if isinstance(price_changes, list):
+                # 1. ALWAYS Update State
+                for change in price_changes:
+                    # You presumably have an apply_delta method
+                    self.shadow_book.apply_delta(change) 
+
+                # 2. Debounce Action
+                self._try_trigger_strategy()
+
         else:
-            self.logger.debug(f"Ignoring unknown WS message type: {data.get("type")}")
+            self.logger.debug(f"Ignoring unknown WS message type: {event_type}")
+
+    def _try_trigger_strategy(self):
+        """Helper to debounce the expensive strategy callback."""
+        now = time.time() * 1000
+        if (now - self.last_trigger_time) >= self.debounce_ms:
+            self.last_trigger_time = now
+            try:
+                self.logger.debug("Triggering strategy callback...")
+                self.callback()
+            except BaseException as e:
+                self.logger.error(f"Error in strategy processing: {e}", exc_info=True)
+        else:
+            self.logger.debug("Debouncing strategy trigger.")

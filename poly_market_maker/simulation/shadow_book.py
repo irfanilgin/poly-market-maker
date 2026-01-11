@@ -20,6 +20,7 @@ class ShadowBook:
         self.asks = {} # { 0.22: 3856.79, ... }
         self._orders: dict[str, Order] = {}
         self.last_update_time = None
+        self.last_trade_price = None
 
     def apply_snapshot(self, snapshot_data):
         self.bids = {
@@ -154,3 +155,29 @@ class ShadowBook:
 
         for order_id in filled_order_ids:
             self._orders.pop(order_id)
+
+    
+    @property
+    def last_trade_price(self) -> float | None:
+        return self._last_trade_price
+
+    @last_trade_price.setter
+    def last_trade_price(self, value: float | None):
+        self._last_trade_price = self._parse_safe_float(value)
+
+    @classmethod
+    def _parse_safe_float(cls, value) -> float | None:
+            """Helper to convert API strings to float, handling '' and None."""
+            # 1. Handle explicit None
+            if value is None:
+                return None
+            
+            # 2. Handle empty strings (e.g. from API: "last_trade_price": "")
+            if isinstance(value, str) and value.strip() == "":
+                return None
+                
+            # 3. Try conversion
+            try:
+                return float(value)
+            except ValueError:
+                return None
