@@ -1,53 +1,90 @@
-import logging
 import threading
+import logging
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, wait
+from poly_market_maker.order import Order
+from concurrent.futures import ThreadPoolExecutor
 
 from poly_market_maker.order import Order, Side
 
 
-class OrderBook:
-    """Represents the current snapshot of the order book.
 
-    Attributes:
-        -orders: Current list of active orders.
-        -balances: Current balances state.
-        -orders_being_placed: `True` if at least one order is currently being placed. `False` otherwise.
-        -orders_being_cancelled: `True` if at least one orders is currently being cancelled. `False` otherwise.
+class OrderBook:
+    """
+    Thread-safe container for the user's active orders and balances.
+    Acts as the 'Source of Truth' for the Strategy.
     """
 
-    def __init__(
-        self,
-        orders: list[Order],
-        balances: dict,
-        orders_being_placed: bool,
-        orders_being_cancelled: bool,
-    ):
-        assert isinstance(orders_being_placed, bool)
-        assert isinstance(orders_being_cancelled, bool)
+    def __init__(self, orders: list[Order] = None, balances: dict = None):
+        self._lock = threading.RLock()
+        
+        # Store as dict for O(1) access: {order_id: Order}
+        self._orders: dict[str, Order] = {o.id: o for o in orders} if orders else {}
+        self._balances = balances if balances else {}
+        
+        # Status flags
+        self.orders_being_placed = False
+        self.orders_being_cancelled = False
 
-        self.orders = orders
-        self.balances = balances
-        self.orders_being_placed = orders_being_placed
-        self.orders_being_cancelled = orders_being_cancelled
+    @property
+    def orders(self) -> list[Order]:
+        """Returns a safe copy of the order list."""
+        with self._lock:
+            return list(self._orders.values())
+
+    @property
+    def balances(self) -> dict:
+        """Returns a safe copy of balances."""
+        with self._lock:
+            return self._balances.copy()
+
+    def update(self, orders: list[Order], balances: dict):
+        """Replaces the entire state (used by the periodic sync)."""
+        with self._lock:
+            self._orders = {o.id: o for o in orders}
+            if balances:
+                self._balances = balances
+
+    def add_order(self, order: Order):
+        """Optimistic update: Add a single order."""
+        with self._lock:
+            self._orders[order.id] = order
+
+    def remove_order(self, order_id: str):
+        """Optimistic update: Remove a single order."""
+        with self._lock:
+            self._orders.pop(order_id, None)
+
+    def set_placing_status(self, is_placing: bool):
+        with self._lock:
+            self.orders_being_placed = is_placing
+
+    def set_cancelling_status(self, is_cancelling: bool):
+        with self._lock:
+            self.orders_being_cancelled = is_cancelling
 
 
 class OrderBookManager:
-    """Tracks state of the order book without constantly querying it.
-
-    Attributes:
-        refresh_frequency: Frequency (in seconds) of how often background order book (and balances)
-            refresh takes place.
+    """
+    Manages the lifecycle of User Orders (Placing, Cancelling, Syncing).
+    Fully Asynchronous.
     """
 
-    def __init__(self, refresh_frequency: int, max_workers: int = 5):
+    def __init__(self, refresh_frequency: int = 10, max_workers: int = 5):
         self.logger = logging.getLogger(self.__class__.__name__)
-
-        assert isinstance(refresh_frequency, int)
-        assert isinstance(max_workers, int)
-
+        
         self.refresh_frequency = refresh_frequency
+        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._lock = threading.RLock()
+        
+        # The Data Container
+        self.order_book = OrderBook(orders=[], balances={})
+
+        # State Tracking
+        self._currently_placing_orders = 0
+        self._order_ids_cancelling = set()
+        
+        # API Functions (injected)
         self.get_orders_function = None
         self.get_balances_function = None
         self.place_order_function = None
@@ -55,477 +92,227 @@ class OrderBookManager:
         self.cancel_all_orders_function = None
         self.on_update_function = None
 
-        self._executor = ThreadPoolExecutor(max_workers=max_workers)
-        self._lock = threading.Lock()
-        self._state = None
-        self._refresh_count = 0
-        self._currently_placing_orders = 0
-        self._orders_placed = list()
-        self._order_ids_cancelling = set()
-        self._order_ids_cancelled = set()
+    # --- Configuration Methods ---
+    def get_orders_with(self, func): self.get_orders_function = func
+    def get_balances_with(self, func): self.get_balances_function = func
+    def place_orders_with(self, func): self.place_order_function = func
+    def cancel_orders_with(self, func): self.cancel_order_function = func
+    def cancel_all_orders_with(self, func): self.cancel_all_orders_function = func
+    def on_update(self, func): self.on_update_function = func
 
-    def get_orders_with(self, get_orders_function: Callable[[], list[Order]]):
-        """
-        Configures the function used to fetch active keeper orders.
-        """
-        assert callable(get_orders_function)
-
-        self.get_orders_function = get_orders_function
-
-    def get_balances_with(self, get_balances_function: Callable):
-        """
-        Configures the (optional) function used to fetch current keeper balances.
-        Args:
-            get_balances_function: The function which will be periodically called by the order book manager
-                in order to get current keeper balances. This is optional, is not configured balances
-                will not be fetched.
-        """
-        assert callable(get_balances_function)
-
-        self.get_balances_function = get_balances_function
-
-    def place_orders_with(self, place_order_function: Callable):
-        """
-        Configures the function used to place orders.
-        Args:
-            place_order_function: The function which will be called in order to place new orders.
-        """
-        assert callable(place_order_function)
-
-        self.place_order_function = place_order_function
-
-    def cancel_orders_with(self, cancel_order_function: Callable):
-        """
-        Configures the function used to cancel orders.
-        Args:
-            cancel_order_function: The function which will be called in order to cancel orders.
-        """
-        assert callable(cancel_order_function)
-
-        self.cancel_order_function = cancel_order_function
-
-    def cancel_all_orders_with(self, cancel_all_orders_function: Callable):
-        """
-        Configures the function used to cancel all keeper orders.
-        Args:
-            cancel_all_orders_function: The function which will be called in order to cancel orders.
-        """
-        assert callable(cancel_all_orders_function)
-
-        self.cancel_all_orders_function = cancel_all_orders_function
-
-    # Add this inside OrderBookManager class
+    # --- State Properties ---
     @property
     def has_pending_cancels(self) -> bool:
-        """Returns True if there are orders currently being cancelled."""
         with self._lock:
             return len(self._order_ids_cancelling) > 0
 
-    def on_update(self, on_update_function: Callable):
-        assert callable(on_update_function)
-
-        self.on_update_function = on_update_function
+    def get_order_book(self) -> OrderBook:
+        """Returns the live order book object."""
+        # Update status flags before returning
+        with self._lock:
+            self.order_book.set_placing_status(self._currently_placing_orders > 0)
+            self.order_book.set_cancelling_status(len(self._order_ids_cancelling) > 0)
+        return self.order_book
 
     def start(self):
-        """Start the background refresh of active keeper orders."""
-        threading.Thread(target=self._thread_refresh_order_book, daemon=True).start()
+        """Starts the background sync loop."""
+        threading.Thread(target=self._sync_loop, daemon=True).start()
 
-    def get_order_book(self) -> OrderBook:
-        """
-        Returns the current snapshot of the active keeper orders and balances.
-        """
-        while self._state is None:
-            self.logger.info("Waiting for the order book to become available...")
-            time.sleep(0.5)
-
-        with self._lock:
-            self.logger.debug("Getting the order book...")
-            if self._state.get("orders") is not None:
-                self.logger.debug(
-                    f"Orders retrieved last time: {[order.id for order in self._state["orders"]]}"
-                )
-            self.logger.debug(
-                f"Orders placed since then: {[order.id for order in self._orders_placed]}"
-            )
-            self.logger.debug(
-                f"Orders cancelled since then: {[order_id for order_id in self._order_ids_cancelled]}"
-            )
-            self.logger.debug(
-                f"Orders being cancelled: {[order_id for order_id in self._order_ids_cancelling]}"
-            )
-            self.logger.debug(
-                f"Orders being placed: {self._currently_placing_orders} order(s)"
-            )
-
-            orders = []
-
-            # Add orders which have been placed if they exist
-            if self._state.get("orders") is not None:
-                orders = list(self._state["orders"])
-                for order in self._orders_placed:
-                    if order.id not in list(map(lambda order: order.id, orders)):
-                        orders.append(order)
-
-                # Remove orders being cancelled and already cancelled.
-                orders = list(
-                    filter(
-                        lambda order: order.id not in self._order_ids_cancelling
-                        and order.id not in self._order_ids_cancelled,
-                        orders,
-                    )
-                )
-
-                self.logger.debug(
-                    f"Open keeper orders: {[order.id for order in orders]}"
-                )
-
-        return OrderBook(
-            orders=orders,
-            balances=self._state["balances"],
-            orders_being_placed=self._currently_placing_orders > 0,
-            orders_being_cancelled=len(self._order_ids_cancelling) > 0,
-        )
-
-    def place_order(self, place_order_function: Callable[[Order], Order], order: Order):
-        """Places new order. Order placement will happen in a background thread.
-
-        Args:
-            place_order_function: Function used to place the order.
-        """
-        assert callable(place_order_function)
-
-        with self._lock:
-            self._currently_placing_orders += 1
-
-        self._report_order_book_updated()
-
-        result = self._executor.submit(
-            self._thread_place_order(place_order_function, order)
-        )
-        wait([result])
+    # --- Asynchronous Actions ---
 
     def place_orders(self, orders: list[Order]):
-        """Places new orders asynchronously.
-        
-        Args:
-            orders: List of new orders to place.
-        """
-        assert isinstance(orders, list)
-        assert callable(self.place_order_function)
+        """Places new orders asynchronously."""
+        if not orders: return
 
-        # 1. Increment counter safely
         with self._lock:
             self._currently_placing_orders += len(orders)
-
-        self._report_order_book_updated()
+        
+        self._notify_update()
 
         for order in orders:
-            # 2. FIXED SYNTAX: Pass the function and args separately
-            # Do NOT use parenthesis () after _thread_place_order
             future = self._executor.submit(
-                self._thread_place_order,   # Function reference
-                self.place_order_function,  # Arg 1
-                order                       # Arg 2
+                self._thread_place_order, # The function to run
+                self.place_order_function, # Arg 1
+                order                      # Arg 2
             )
-            
-            # 3. Add Callback: This runs automatically when the thread finishes
-            # It replaces 'wait(results)' so we don't block the main loop
-            future.add_done_callback(self._on_order_complete)
+            future.add_done_callback(self._on_place_complete)
 
-    def _on_order_complete(self, future):
-        """
-        Callback handler. Runs in a background thread when an order finishes.
-        """
+    def cancel_orders(self, orders: list[Order]):
+        """Cancels orders asynchronously."""
+        if not orders: return
+
+        self.logger.info(f"Cancelling {len(orders)} orders...")
+        
+        with self._lock:
+            for order in orders:
+                self._order_ids_cancelling.add(order.id)
+        
+        self._notify_update()
+
+        for order in orders:
+            future = self._executor.submit(
+                self._thread_cancel_order,
+                self.cancel_order_function,
+                order
+            )
+            # Use lambda to pass the order ID to the callback
+            future.add_done_callback(lambda f, oid=order.id: self._on_cancel_complete(f, oid))
+
+    def cancel_all_orders(self):
+        """Cancels ALL orders."""
+        orders = self.order_book.orders # Get safe copy
+        if not orders:
+            self.logger.info("No open orders to cancel.")
+            return
+
+        self.logger.info(f"Cancelling all {len(orders)} orders...")
+
+        with self._lock:
+            for order in orders:
+                self._order_ids_cancelling.add(order.id)
+
+        future = self._executor.submit(
+            self._thread_cancel_all,
+            self.cancel_all_orders_function,
+            orders
+        )
+        future.add_done_callback(lambda f, ords=orders: self._on_cancel_all_complete(f, ords))
+
+    # --- Background Threads (Worker Logic) ---
+    # These methods run INSIDE the ThreadPool. 
+    # They MUST NOT return functions; they must DO the work.
+
+    def _thread_place_order(self, place_func, order):
+        """Executes the API call to place an order."""
         try:
-            # Check if the thread raised an exception (e.g. API Error)
-            future.result() 
+            # 1. Call API
+            placed_order = place_func(order)
+            
+            # 2. Optimistic Update: Add to local book immediately
+            if placed_order:
+                self.order_book.add_order(placed_order)
+                return placed_order
+            else:
+                raise Exception("API returned None for placed order")
         except Exception as e:
-            self.logger.error(f"Order placement failed in background: {e}", exc_info=True)
+            self.logger.error(f"Failed to place order {order}: {e}")
+            raise e
+
+    def _thread_cancel_order(self, cancel_func, order):
+        """Executes the API call to cancel an order."""
+        try:
+            # 1. Call API
+            success = cancel_func(order)
+            
+            # 2. Optimistic Update: Remove from local book immediately
+            if success:
+                self.order_book.remove_order(order.id)
+            else:
+                self.logger.warning(f"API failed to cancel order {order.id}")
+        except Exception as e:
+            self.logger.error(f"Failed to cancel order {order.id}: {e}")
+            raise e
+
+    def _thread_cancel_all(self, cancel_all_func, orders):
+        """Executes the API call to cancel all orders."""
+        try:
+            cancel_all_func(orders)
+            # Optimistic Update
+            for order in orders:
+                self.order_book.remove_order(order.id)
+        except Exception as e:
+            self.logger.error(f"Failed to cancel all orders: {e}")
+            raise e
+
+    # --- Callbacks (Cleanup) ---
+
+    def _on_place_complete(self, future):
+        try:
+            future.result() # Raise exception if thread failed
+        except Exception:
+            pass # Already logged in thread
         finally:
-            # 4. Cleanup: Always decrement the counter, success or fail
             with self._lock:
                 self._currently_placing_orders = max(0, self._currently_placing_orders - 1)
 
-    def cancel_orders(self, orders: list[Order]):
-        """
-        Cancels existing orders asynchronously.
-        
-        Args:
-            orders: List of orders to cancel.
-        """
-        self.logger.info("Cancelling orders...")
-        assert isinstance(orders, list)
-        assert callable(self.cancel_order_function)
-
-        # 1. Mark orders as 'cancelling' so we don't try to double-cancel
-        with self._lock:
-            for order in orders:
-                self._order_ids_cancelling.add(order.id)
-
-        self._report_order_book_updated()
-
-        for order in orders:
-            # 2. FIXED SYNTAX: Pass function and args separately
-            future = self._executor.submit(
-                self._thread_cancel_order,    # Function reference
-                self.cancel_order_function,   # Arg 1
-                order                         # Arg 2
-            )
-            
-            # 3. Add Callback with Closure
-            # We must pass the specific order.id to the callback so we know which one to clean up.
-            # "oid=order.id" captures the current ID safely.
-            future.add_done_callback(lambda f, oid=order.id: self._on_cancel_complete(f, oid))
-
     def _on_cancel_complete(self, future, order_id):
-        """
-        Callback handler. Runs when a cancel thread finishes.
-        """
         try:
-            # Check for exceptions (e.g., Network Error during cancel)
             future.result()
-        except Exception as e:
-            self.logger.error(f"Order cancellation failed for {order_id}: {e}", exc_info=True)
+        except Exception:
+            pass
         finally:
-            # 4. Cleanup: CRITICAL
-            # We MUST remove the ID from the set, otherwise the bot thinks
-            # it is still cancelling this order forever.
             with self._lock:
                 self._order_ids_cancelling.discard(order_id)
 
-    def cancel_all_orders(self):
-        """
-        Cancels all existing orders asynchronously.
-        """
-        # 1. Get current orders
-        orders = self.get_order_book().orders
-        if len(orders) == 0:
-            self.logger.info("No open orders on order book.")
-            return
-
-        self.logger.info(f"Cancelling {len(orders)} open orders...")
-
-        # 2. Mark all as cancelling immediately so we don't try to touch them
-        with self._lock:
-            for order in orders:
-                self._order_ids_cancelling.add(order.id)
-
-        # 3. FIXED SYNTAX: Submit to background thread properly
-        future = self._executor.submit(
-            self._thread_cancel_all_orders,   # Function reference
-            self.cancel_all_orders_function,  # Arg 1
-            orders                            # Arg 2
-        )
-
-        # 4. Add Callback for cleanup
-        # We pass the list of orders to the callback so we can clear their IDs 
-        # from the 'cancelling' set once the job is done.
-        future.add_done_callback(lambda f, ords=orders: self._on_cancel_all_complete(f, ords))
-
     def _on_cancel_all_complete(self, future, orders):
-        """
-        Callback handler. Runs when the 'cancel all' thread finishes.
-        """
         try:
-            future.result() # Check for exceptions
-            self.logger.info("Cancel All signal sent successfully.")
-        except Exception as e:
-            self.logger.error(f"Failed to cancel all orders: {e}", exc_info=True)
+            future.result()
+            self.logger.info("All orders cancelled successfully.")
+        except Exception:
+            pass
         finally:
-            # 5. Cleanup: Remove the IDs from the tracking set
             with self._lock:
                 for order in orders:
                     self._order_ids_cancelling.discard(order.id)
 
-    def wait_for_order_cancellation(self):
-        """Wait until no background order cancellation takes place."""
-        while len(self._order_ids_cancelling) > 0:
-            time.sleep(0.1)
-
-    def wait_for_order_book_refresh(self):
-        """Wait until at least one background order book refresh happens since now."""
-        with self._lock:
-            old_counter = self._refresh_count
-
-        while True:
-            with self._lock:
-                new_counter = self._refresh_count
-
-            if new_counter > old_counter:
-                break
-
-            time.sleep(0.1)
-
-    def wait_for_stable_order_book(self):
-        """Wait until no background order placement nor cancellation takes place."""
-        while True:
-            order_book = self.get_order_book()
-            if (
-                not order_book.orders_being_cancelled
-                and not order_book.orders_being_placed
-            ):
-                break
-            time.sleep(0.1)
-
-    def _report_order_book_updated(self):
-        if self.on_update_function is not None:
-            self.on_update_function()
-
-    def _run_get_orders(self):
-        try:
-            orders = self.get_orders_function()
-            return orders
-        except Exception as e:
-            self.logger.error(f"Exception fetching orderbook! Error: {e}")
-            return None
-
-    def _run_get_balances(self):
-        try:
-            balances = (
-                self.get_balances_function()
-                if self.get_balances_function is not None
-                else None
-            )
-            self.logger.debug(f"Balances: {balances}")
-            return balances
-        except Exception as e:
-            self.logger.error(f"Exception fetching onchain balances! Error: {e}")
-            return None
-
-    def _thread_refresh_order_book(self):
-        while True:
-            try:
-                with self._lock:
-                    orders_already_cancelled_before = set(self._order_ids_cancelled)
-                    orders_already_placed_before = set(self._orders_placed)
-
-                # get orders
-                orders = self._run_get_orders()
-
-                # get balances
-                balances = self._run_get_balances()
-
-                with self._lock:
-                    self._order_ids_cancelled = (
-                        self._order_ids_cancelled - orders_already_cancelled_before
-                    )
-                    for order in orders_already_placed_before:
-                        self._orders_placed.remove(order)
-
-                    if self._state is None:
-                        self.logger.info("Order book became available")
-
-                    # Issue: RPC endpoints are sometimes unreliable and fetching the onchain balances for the keeper sometimes
-                    # fails. This kills the whole refresh orderbook process which is clearly undesirable.
-                    # Fix should be to ensure the process doesn't fail if any specific internal function fails
-                    if self._state is None:
-                        self._state = {}
-
-                    if orders is not None:
-                        # If either the orderbook or balance check fails, the state stays as it was before the refresh
-                        self._state["orders"] = orders
-                    if balances is not None:
-                        self._state["balances"] = balances
-                    # self._state = {"orders": orders, "balances": balances}
-                    self._refresh_count += 1
-
-                self._report_order_book_updated()
-                
-                if orders is None:
-                    self.logger.error("Failed to fetch order book: orders is None")
-                    return # Skip this refresh cycle
-                else:
-                    # Dynamically access shadow_book from the app instance via the bound method
-                    shadow_book = None
-                    try:
-                        # self.get_orders_function is bound to app.get_orders
-                        # self.get_orders_function.__self__ is the app instance
-                        if hasattr(self.get_orders_function.__self__, 'shadow_book'):
-                            shadow_book = self.get_orders_function.__self__.shadow_book
-                    except AttributeError:
-                        self.logger.debug("Could not access shadow_book from get_orders_function.__self__")
+    # --- Periodic Sync Loop (Anti-Entropy) ---
     
-                    self.logger.debug(
-                        f"Fetched the order book"
-                        f" (orders: {[order.id for order in orders]}, "
-                        f" buys: {len([order for order in orders if order.side == Side.BUY])}, "
-                        f" sells: {len([order for order in orders if order.side == Side.SELL])})"
+    def _sync_loop(self):
+        """
+        Background loop that fetches the 'True' state.
+        Hardened against RPC failures.
+        """
+        self.logger.info("OrderBook Sync Loop started.")
+        while True:
+            current_orders = None
+            current_balances = None
+
+            # 1. Fetch Orders (Critical)
+            try:
+                if self.get_orders_function:
+                    current_orders = self.get_orders_function()
+            except Exception as e:
+                self.logger.error(f"Failed to fetch orders from API: {e}")
+                # If we can't get orders, we usually can't proceed with a sync
+                current_orders = None
+
+            # 2. Fetch Balances (Non-Critical / Flaky RPC)
+            try:
+                if self.get_balances_function:
+                    current_balances = self.get_balances_function()
+            except Exception as e:
+                self.logger.warning(f"RPC Balance fetch failed (using stale balances): {e}")
+                # We do NOT stop. We just use None, so the OrderBook keeps the old balances.
+                current_balances = None
+
+            # 3. Update the Book (Thread-Safe)
+            try:
+                # Only update if we successfully got orders
+                if current_orders is not None:
+                    # Filter out orders we are currently cancelling
+                    with self._lock:
+                        clean_orders = [
+                            o for o in current_orders 
+                            if o.id not in self._order_ids_cancelling
+                        ]
+                    
+                    # Update orders. Only update balances if we actually got fresh ones.
+                    # If current_balances is None, the OrderBook keeps its existing balances.
+                    self.order_book.update(
+                        clean_orders, 
+                        current_balances if current_balances is not None else {}
                     )
-            except ValueError as e:
-                self.logger.error(f"Failed to fetch the order book or balances ({e})!")
+                    
+                    self._notify_update()
+                    self.logger.debug(f"Synced OrderBook: {len(clean_orders)} orders.")
+            except Exception as e:
+                 self.logger.error(f"Error updating local OrderBook: {e}")
 
             time.sleep(self.refresh_frequency)
 
-    def _thread_place_order(
-        self, place_order_function: Callable[[Order], Order], order: Order
-    ):
-        assert callable(place_order_function)
-
-        def func():
+    def _notify_update(self):
+        if self.on_update_function:
             try:
-                new_order = place_order_function(order)
-
-                if new_order is not None:
-                    with self._lock:
-                        self._orders_placed.append(new_order)
-            except BaseException as exception:
-                self.logger.exception(exception)
-            finally:
-                with self._lock:
-                    self._currently_placing_orders -= 1
-                self._report_order_book_updated()
-
-        return func
-
-    def _thread_cancel_order(
-        self, cancel_order_function: Callable[[Order], None], order: Order
-    ):
-        assert callable(cancel_order_function)
-
-        def func():
-            order_id = order.id
-            try:
-                if cancel_order_function(order):
-                    with self._lock:
-                        self._order_ids_cancelled.add(order_id)
-                        self._order_ids_cancelling.remove(order_id)
-            except BaseException as e:
-                self.logger.exception(f"Failed to cancel {order_id}")
-                self.logger.exception(f"Exception: {e}")
-            finally:
-                with self._lock:
-                    try:
-                        self._order_ids_cancelling.remove(order_id)
-                    except KeyError:
-                        pass
-                self._report_order_book_updated()
-
-        return func
-
-    def _thread_cancel_all_orders(
-        self, 
-        cancel_all_orders_function: Callable[[list[Order]], bool],
-        orders: list[Order],
-    ):
-        assert callable(cancel_all_orders_function)
-
-        def func():
-            order_ids = [order.id for order in orders]
-            try:
-                if cancel_all_orders_function(orders):
-                    with self._lock:
-                        for order_id in order_ids:
-                            self._order_ids_cancelled.add(order_id)
-                            self._order_ids_cancelling.remove(order_id)
-            except BaseException:
-                self.logger.exception("Failed to cancel all")
-            finally:
-                with self._lock:
-                    for order_id in order_ids:
-                        try:
-                            self._order_ids_cancelling.remove(order_id)
-                        except KeyError:
-                            pass
-                self._report_order_book_updated()
-
-        return func
+                self.on_update_function()
+            except Exception:
+                pass
