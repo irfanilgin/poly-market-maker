@@ -44,12 +44,20 @@ def run_simulation():
 
     # Simulate placing a buy order
     buy_order = Order(size=10.0, price=0.49, side=Side.BUY, token=Token.A)
+    MetricsTracker.record_placement(buy_order)
     buy_order_id = mock_exchange.place_order(buy_order.price, buy_order.size, buy_order.side.value, shadow_book.token_id)
     logger.info(f"Placed virtual buy order with ID: {buy_order_id}")
+    time.sleep(0.5) # Simulate delay
+    MetricsTracker.record_fill(buy_order) # Should log 0.5s latency
+    logger.info("Recorded mock fill metrics.")
 
     # Simulate placing a sell order
     sell_order = Order(size=10.0, price=0.51, side=Side.SELL, token=Token.A)
+    MetricsTracker.record_placement(sell_order)
     sell_order_id = mock_exchange.place_order(sell_order.price, sell_order.size, sell_order.side.value, shadow_book.token_id)
+    logger.info(f"Placed virtual sell order with ID: {sell_order_id}")
+    time.sleep(0.5) # Simulate delay
+    MetricsTracker.record_fill(sell_order) # Should log 0.5s latency
     logger.info(f"Placed virtual sell order with ID: {sell_order_id}")
 
     logger.info(f"Open Virtual Orders: {shadow_book.get_open_orders()}")

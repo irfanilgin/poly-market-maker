@@ -25,7 +25,6 @@ gas_station_latency = Histogram(
     namespace="market_maker",
 )
 
-
 order_fill_latency = Histogram(
     "order_fill_latency_seconds",
     "Time from internal strategy signal to confirmed fill",
@@ -48,6 +47,13 @@ order_slippage = Histogram(
 fill_counter = Counter(
     "order_fills_total",
     "Total number of orders filled",
+    labelnames=["side", "token"],
+    namespace="market_maker",
+)
+
+placed_orders_counter = Counter(
+    "orders_placed_total",
+    "Total number of orders sent to the exchange",
     labelnames=["side", "token"],
     namespace="market_maker",
 )

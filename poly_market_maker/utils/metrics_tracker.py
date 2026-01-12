@@ -1,6 +1,6 @@
 import time
 from poly_market_maker.order import Order, Side
-from poly_market_maker.metrics import order_fill_latency, fill_counter
+from poly_market_maker.metrics import (order_fill_latency, fill_counter, placed_orders_counter)
 
 class MetricsTracker:
     """
@@ -39,5 +39,8 @@ class MetricsTracker:
         """
         Optional: Record when an order is successfully placed on the book.
         """
-        # Placeholder for future "Time to Ack" metrics
-        pass
+        # Increment the placement counter
+        placed_orders_counter.labels(
+            side=order.side.name, 
+            token=order.token.name
+        ).inc()

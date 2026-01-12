@@ -20,6 +20,24 @@ class BandsStrategy(BaseStrategy):
             self.logger.exception(
                 f"Config is invalid ({e}). Treating the config as if it has no bands."
             )
+        
+        # Map String -> Enum (O(1) lookup)
+        token_map = {"A": Token.A, "B": Token.B}
+
+        active_tokens_config = self.config.get(config, "active_tokens", ["A", "B"])
+
+        # Create the list (List Comprehension is faster than for-loops)
+        self.tradable_tokens = [
+            token_map[t] for t in active_tokens_config 
+            if t in token_map
+        ]
+
+        # Safety Check (Cost: Runs once, saves you from 0-order bugs)
+        if not self.tradable_tokens:
+            self.logger.warning("No valid tokens configured! Defaulting to Token A.")
+            self.tradable_tokens = [Token.A]
+            
+        self.logger.info(f"Strategy active on: {self.tradable_tokens}")
 
     def get_orders(self, orderbook: OrderBook, target_prices):
         """
@@ -28,11 +46,11 @@ class BandsStrategy(BaseStrategy):
         orders_to_place = []
         orders_to_cancel = []
 
-        for token in Token:
+        for token in self.tradable_tokens:
             self.logger.debug(f"{token.value} target price: {target_prices[token]}")
 
         # cancel orders
-        for token in Token:
+        for token in self.tradable_tokens:
             orders = self._orders_by_corresponding_buy_token(orderbook.orders, token)
             orders_to_cancel += self.bands.cancellable_orders(
                 orders, target_prices[token]
@@ -51,7 +69,7 @@ class BandsStrategy(BaseStrategy):
         self.logger.debug(f"Free collateral balance: {free_collateral_balance}")
 
         # place orders
-        for token in Token:
+        for token in self.tradable_tokens:
             orders = self._orders_by_corresponding_buy_token(orderbook.orders, token)
 
             balance_locked_by_open_sells = sum(

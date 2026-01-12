@@ -1,12 +1,9 @@
 import logging
-import math
 import os
-import random
 import yaml
 from logging import config
 from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware, SignAndSendRawMiddlewareBuilder
-from web3.gas_strategies.time_based import fast_gas_price_strategy
 from web3.gas_strategies.time_based import fast_gas_price_strategy
 
 
@@ -63,27 +60,3 @@ def setup_web3(rpc_url, private_key):
     # (e.g. using functools.lru_cache on specific functions).
 
     return w3
-
-
-def math_round_down(f: float, sig_digits: int) -> float:
-    str_f = str(f).split(".")
-    if len(str_f) > 1 and len(str_f[1]) == sig_digits:
-        # don,t round values which are already the number of sig_digits
-        return f
-    return math.floor((f * (10**sig_digits))) / (10**sig_digits)
-
-
-def math_round_up(f: float, sig_digits: int) -> float:
-    str_f = str(f).split(".")
-    if len(str_f) > 1 and len(str_f[1]) == sig_digits:
-        # don,t round values which are already the number of sig_digits
-        return f
-    return math.ceil((f * (10**sig_digits))) / (10**sig_digits)
-
-
-def add_randomness(price: float, lower: float, upper: float) -> float:
-    return math.floor((price + random.uniform(lower, upper)) * (10**2)) / (10**2)
-
-
-def randomize_default_price(price: float) -> float:
-    return add_randomness(price, -0.1, 0.1)

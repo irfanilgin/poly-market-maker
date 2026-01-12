@@ -24,5 +24,6 @@
       "avgAmount": 20.0,
       "maxAmount": 30.0
     }
-  ]
+  ],
+  "active_tokens": ["A"]
 }
