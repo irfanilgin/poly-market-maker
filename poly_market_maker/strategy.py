@@ -4,7 +4,7 @@ import logging
 import traceback
 
 
-from poly_market_maker.orderbook import OrderBookManager
+from poly_market_maker.orderbook_manager import OrderBookManager
 from poly_market_maker.token import Token, Collateral
 from poly_market_maker.constants import MAX_DECIMALS
 from poly_market_maker.simulation.shadow_book import ShadowBook # NEW IMPORT

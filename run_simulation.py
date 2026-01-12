@@ -46,7 +46,7 @@ def run_simulation():
     logger.info(f"Placed virtual buy order with ID: {buy_order_id}")
 
     # Simulate placing a sell order
-    sell_order = Order(size=10.0, price=0.51, side=Side.SELL, token=Token.B)
+    sell_order = Order(size=10.0, price=0.51, side=Side.SELL, token=Token.A)
     sell_order_id = mock_exchange.place_order(sell_order.price, sell_order.size, sell_order.side.value, shadow_book.token_id)
     logger.info(f"Placed virtual sell order with ID: {sell_order_id}")
 

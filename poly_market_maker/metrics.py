@@ -24,3 +24,22 @@ gas_station_latency = Histogram(
     labelnames=["strategy", "status"],
     namespace="market_maker",
 )
+
+
+order_fill_latency = Histogram(
+    "order_fill_latency_seconds",
+    "Time from internal strategy signal to confirmed fill",
+    labelnames=["side", "token"],  # breakdown by Buy/Sell and TokenA/B
+    namespace="market_maker",
+    # Custom buckets for HFT: 10ms to 10 seconds
+    buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf"))
+)
+
+order_slippage = Histogram(
+    "order_slippage",
+    "Difference between Decision Price and Fill Price (Positive = Good, Negative = Bad)",
+    labelnames=["side"], 
+    namespace="market_maker",
+    # Buckets for slippage: from -5 cents to +5 cents
+    buckets=(-0.05, -0.01, -0.005, -0.001, 0, 0.001, 0.005, 0.01, 0.05, float("inf"))
+)

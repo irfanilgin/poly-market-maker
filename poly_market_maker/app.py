@@ -10,7 +10,7 @@ from poly_market_maker.market import Market
 from poly_market_maker.token import Token, Collateral
 from poly_market_maker.clob_api import ClobApi
 from poly_market_maker.lifecycle import Lifecycle
-from poly_market_maker.orderbook import OrderBookManager
+from poly_market_maker.orderbook_manager import OrderBookManager
 from poly_market_maker.contracts import Contracts
 from poly_market_maker.metrics import keeper_balance_amount
 from poly_market_maker.strategy import StrategyManager

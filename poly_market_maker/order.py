@@ -1,6 +1,6 @@
 from enum import Enum
+import time
 from py_clob_client.order_builder.constants import BUY, SELL
-
 from poly_market_maker.market import Token
 
 
@@ -18,7 +18,7 @@ class Side(Enum):
 
 
 class Order:
-    def __init__(self, size: float, price: float, side: Side, token: Token, id=None):
+    def __init__(self, size: float, price: float, side: Side, token: Token, id: str = None):
         if isinstance(size, int):
             size = float(size)
 
@@ -34,6 +34,7 @@ class Order:
         self.side = side
         self.token = token
         self.id = id
+        self.created_at = time.time()
 
     def __repr__(self):
         return f"Order[id={self.id}, price={self.price}, size={self.size}, side={self.side.value}, token={self.token.value}]"
