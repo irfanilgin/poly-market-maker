@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from poly_market_maker.order import Order
 from poly_market_maker.orderbook import OrderBook
+from poly_market_maker.utils.metrics_tracker import MetricsTracker
 
 
 class OrderBookManager:
@@ -133,7 +134,10 @@ class OrderBookManager:
             
             # 2. Optimistic Update: Add to local book immediately
             if placed_order:
+                self.logger.info(f"Order successfully placed: {placed_order.id}")
+                # Optimistic Local Update
                 self.order_book.add_order(placed_order)
+                MetricsTracker.record_placement(placed_order)
                 return placed_order
             else:
                 raise Exception("API returned None for placed order")
