@@ -24,7 +24,7 @@ class BandsStrategy(BaseStrategy):
         # Map String -> Enum (O(1) lookup)
         token_map = {"A": Token.A, "B": Token.B}
 
-        active_tokens_config = self.config.get(config, "active_tokens", ["A", "B"])
+        active_tokens_config = config.get("active_tokens", ["A", "B"])
 
         # Create the list (List Comprehension is faster than for-loops)
         self.tradable_tokens = [
@@ -39,6 +39,8 @@ class BandsStrategy(BaseStrategy):
             
         self.logger.info(f"Strategy active on: {self.tradable_tokens}")
 
+        self.vanilla_mode = config.get("vanilla_mode", False)
+
     def get_orders(self, orderbook: OrderBook, target_prices):
         """
         Synchronize the orderbook by cancelling orders out of bands and placing new orders if necessary
@@ -48,10 +50,20 @@ class BandsStrategy(BaseStrategy):
 
         for token in self.tradable_tokens:
             self.logger.debug(f"{token.value} target price: {target_prices[token]}")
-
+        #TODO: make this function more modular
         # cancel orders
         for token in self.tradable_tokens:
-            orders = self._orders_by_corresponding_buy_token(orderbook.orders, token)
+            
+            if self.vanilla_mode:
+                # VANILLA: Filter for orders of the CURRENT token (Buy A + Sell A)
+                orders = [
+                    o for o in orderbook.orders 
+                    if o.token == token
+                ]
+            else:
+                # ARBITRAGE: Use the original helper (Buy A + Sell B)
+                orders = self._orders_by_corresponding_buy_token(orderbook.orders, token)
+            
             orders_to_cancel += self.bands.cancellable_orders(
                 orders, target_prices[token]
             )
@@ -72,6 +84,13 @@ class BandsStrategy(BaseStrategy):
         for token in self.tradable_tokens:
             orders = self._orders_by_corresponding_buy_token(orderbook.orders, token)
 
+            if self.vanilla_mode:
+                # VANILLA: We look at the SAME token for selling
+                token_to_sell = token 
+            else:
+                # ARBITRAGE: We look at the COMPLEMENT token for selling
+                token_to_sell = token.complement()
+
             balance_locked_by_open_sells = sum(
                 order.size for order in orders if order.side == Side.SELL
             )
@@ -80,7 +99,7 @@ class BandsStrategy(BaseStrategy):
             )
 
             free_token_balance = (
-                orderbook.balances[token.complement()] - balance_locked_by_open_sells
+                orderbook.balances[token_to_sell] - balance_locked_by_open_sells
             )
             self.logger.debug(
                 f"Free {token.complement().value} balance: {free_token_balance}"
@@ -92,6 +111,7 @@ class BandsStrategy(BaseStrategy):
                 free_token_balance,
                 target_prices[token],
                 token,
+                vanilla_mode=self.vanilla_mode
             )
             free_collateral_balance -= sum(
                 order.size * order.price

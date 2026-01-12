@@ -228,12 +228,16 @@ class Bands:
         token_balance: float,
         target_price: float,
         buy_token: Token,
+        vanilla_mode: bool,
     ) -> list[Order]:
         assert isinstance(orders, list)
         assert isinstance(collateral_balance, float)
         assert isinstance(target_price, float)
-
-        sell_token = buy_token.complement()
+        #TODO: make this function more modular
+        if vanilla_mode:
+            sell_token = buy_token          # Vanilla: Buy A, Sell A
+        else:
+            sell_token = buy_token.complement() # Original: Buy A, Sell B (Arb)
         new_orders = []
         for band in self._calculate_virtual_bands(target_price):
             band_amount = sum(
@@ -244,7 +248,15 @@ class Bands:
 
             if band_amount < band.min_amount:
                 # sell
-                sell_price = band.sell_price(target_price)
+                if vanilla_mode:
+                    # Vanilla: Sell Price = Target Price + Spread
+                    # We derive the spread from the buy_price to ensure symmetry
+                    # (Spread = Target - Buy_Price)
+                    spread = target_price - band.buy_price(target_price)
+                    sell_price = target_price + spread
+                else:
+                    # Arbitrage (Original): Sell Price = (1 - Target) + Spread
+                    sell_price = band.sell_price(target_price)
 
                 sell_size = round(
                     min(band.avg_amount - band_amount, token_balance),

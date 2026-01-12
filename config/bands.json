@@ -25,5 +25,6 @@
       "maxAmount": 30.0
     }
   ],
-  "active_tokens": ["A"]
+  "active_tokens": ["A"],
+  "vanilla_mode": true
 }
