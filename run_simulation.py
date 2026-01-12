@@ -6,6 +6,8 @@ from poly_market_maker.app import App
 from poly_market_maker.strategy import Strategy
 from poly_market_maker.order import Order, Side
 from poly_market_maker.market import Token
+from poly_market_maker.utils.metrics_tracker import MetricsTracker
+
 
 # Configure basic logging for the simulation script
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")

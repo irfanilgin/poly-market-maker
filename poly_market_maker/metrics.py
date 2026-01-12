@@ -43,3 +43,11 @@ order_slippage = Histogram(
     # Buckets for slippage: from -5 cents to +5 cents
     buckets=(-0.05, -0.01, -0.005, -0.001, 0, 0.001, 0.005, 0.01, 0.05, float("inf"))
 )
+
+# NEW: Strategy Effectiveness (Fill Count)
+fill_counter = Counter(
+    "order_fills_total",
+    "Total number of orders filled",
+    labelnames=["side", "token"],
+    namespace="market_maker",
+)
