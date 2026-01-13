@@ -17,6 +17,8 @@ from poly_market_maker.strategy import StrategyManager
 from poly_market_maker.price_listener import PriceListener
 from poly_market_maker.simulation.shadow_book import ShadowBook
 from poly_market_maker.simulation.mock_exchange import MockExchange
+from poly_market_maker.user_listener import UserListener
+from config.config import Config
 
 
 class App:
@@ -34,6 +36,8 @@ class App:
 
         self.web3 = setup_web3(args.rpc_url, args.private_key)
         self.address = self.web3.eth.account.from_key(args.private_key).address
+
+        self.config = Config()
 
         self.shadow_book = None
         if args.simulate:
@@ -84,6 +88,14 @@ class App:
         self.order_book_manager = OrderBookManager(
             args.refresh_frequency, max_workers=1
         )
+
+        self.user_listener = UserListener(
+            api_key=self.config.api_key,
+            api_secret=self.config.api_secret,
+            api_passphrase=self.config.api_passphrase,
+            manager=self.order_book_manager
+        )
+
         self.order_book_manager.get_orders_with(self.get_orders)
         self.order_book_manager.get_balances_with(self.get_balances)
         self.order_book_manager.cancel_orders_with(
@@ -93,6 +105,7 @@ class App:
         self.order_book_manager.cancel_all_orders_with(
             lambda _: self.clob_api.cancel_all_orders()
         )
+        
         self.order_book_manager.start()
 
         self.strategy_manager = StrategyManager(

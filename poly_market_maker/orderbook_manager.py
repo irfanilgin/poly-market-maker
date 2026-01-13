@@ -58,6 +58,13 @@ class OrderBookManager:
             self.order_book.set_cancelling_status(len(self._order_ids_cancelling) > 0)
         return self.order_book
 
+    def get_order(self, order_id: str):
+        """
+        Thread-safe lookup for a single order.
+        Directly accesses the internal order_book without side effects.
+        """
+        return self.order_book.get_order(order_id)
+
     def start(self):
         """Starts the background sync loop."""
         threading.Thread(target=self._sync_loop, daemon=True).start()

@@ -26,6 +26,15 @@ class OrderBook:
         with self._lock:
             return list(self._orders.values())
 
+    def get_order(self, order_id: str) -> Order | None:
+        """
+        Retrieves a single order by ID.
+        Used by UserWebSocket to link fills to existing orders.
+        """
+        with self._lock:
+            # Check if the dictionary keys are IDs (Standard pattern)
+            return self._orders.get(order_id)
+
     @property
     def balances(self) -> dict:
         """Returns a safe copy of balances."""

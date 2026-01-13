@@ -135,3 +135,9 @@ logs/
 
 # vscode settings
 .vscode/
+
+# config
+config/config.json
+
+# env
+.env
