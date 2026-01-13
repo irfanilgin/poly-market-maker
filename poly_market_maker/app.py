@@ -95,6 +95,7 @@ class App:
             api_passphrase=self.config.api_passphrase,
             manager=self.order_book_manager
         )
+        self.user_listener.start()
 
         self.order_book_manager.get_orders_with(self.get_orders)
         self.order_book_manager.get_balances_with(self.get_balances)
@@ -105,7 +106,7 @@ class App:
         self.order_book_manager.cancel_all_orders_with(
             lambda _: self.clob_api.cancel_all_orders()
         )
-        
+
         self.order_book_manager.start()
 
         self.strategy_manager = StrategyManager(
