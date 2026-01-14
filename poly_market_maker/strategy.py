@@ -134,10 +134,10 @@ class StrategyManager:
 
         # Priority 1: Argument
         if price is not None:
-            price_a = price
-
-        # Priority 2: ShadowBook Mid Price (Fallback)
-        if price_a is None or price_a == 0:
+             price_a = price
+        elif (price := self.shadow_book.last_trade_price) is not None and False: # check freshness
+             price_a = price
+        else:
             mid = self.shadow_book.get_mid_price()
             if mid and mid > 0:
                 price_a = mid

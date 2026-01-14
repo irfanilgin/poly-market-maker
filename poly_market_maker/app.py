@@ -1,6 +1,7 @@
 import logging
 from prometheus_client import start_http_server
 import time
+import threading
 
 from poly_market_maker.args import get_args
 from poly_market_maker.gas import GasStation, GasStrategy
@@ -29,6 +30,8 @@ class App:
         self.logger = logging.getLogger(__name__)
 
         args = get_args(args)
+        self.refresh_frequency = args.refresh_frequency
+        self.sync_lock = threading.Lock() # Lock to prevent concurrency between WebSocket and Timer
 
         # server to expose the metrics.
         self.metrics_server_port = args.metrics_server_port
@@ -133,6 +136,11 @@ class App:
         with Lifecycle() as lifecycle:
             lifecycle.on_startup(self.startup)
             lifecycle.on_shutdown(self.shutdown)
+            # Register the strategy to run periodically.
+            # This serves two purposes:
+            # 1. Keeps the Lifecycle loop alive (it exits if no timers are registered).
+            # 2. Provides a backup sync in case WebSocket updates are missed.
+            lifecycle.every(self.refresh_frequency, self.synchronize)
 
     """
     lifecycle
@@ -148,11 +156,13 @@ class App:
 
     def synchronize(self):
         """
-        Synchronize the orderbook by cancelling orders out of bands and placing new orders if necessary
+        Synchronize the orderbook by cancelling orders out of bands and placing new orders if necessary.
+        Thread-safe: Protected by a lock to prevent race conditions between WebSocket callbacks and periodic timers.
         """
-        self.logger.debug("Synchronizing orderbook...")
-        self.strategy_manager.synchronize()
-        self.logger.debug("Synchronized orderbook!")
+        with self.sync_lock:
+            self.logger.debug("Synchronizing orderbook...")
+            self.strategy_manager.synchronize()
+            self.logger.debug("Synchronized orderbook!")
 
     def shutdown(self):
         """

@@ -51,7 +51,8 @@ class ShadowBook:
             size = float(delta_item.get('size'))
 
             # 1. Update the Local Book & Manage Cache
-            if side == 'buy':
+            s_side = str(side).lower()
+            if s_side == 'buy':
                 if size == 0:
                     self.bids.pop(price, None)
                     # Cache Invalidation: Only if we removed the top bid
@@ -124,6 +125,8 @@ class ShadowBook:
 
     def get_mid_price(self):
         best_bid = self.get_best_bid()
+        best_ask = self.get_best_ask()
+
         best_ask = self.get_best_ask()
         
         # SAFETY CHECK: If one side is missing, the market is broken.

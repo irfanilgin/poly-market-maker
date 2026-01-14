@@ -326,10 +326,12 @@ class ClobApi:
         
             for t in tokens:
                 outcome = t.get('outcome', '').lower()
+                t_id = t.get('token_id')
+                self.logger.info(f"DEBUG: Found token: Outcome='{outcome}', ID='{t_id}'")
                 if outcome == 'yes':
-                    token_ids['yes'] = t.get('token_id')
+                    token_ids['yes'] = t_id
                 elif outcome == 'no':
-                    token_ids['no'] = t.get('token_id')
+                    token_ids['no'] = t_id
                         
         except PolyApiException as e:
             self.logger.error(f"PolyApiException fetching token_ids for condition {condition_id}: {e}")
