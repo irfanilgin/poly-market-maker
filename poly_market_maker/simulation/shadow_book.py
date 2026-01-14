@@ -21,8 +21,12 @@ class ShadowBook:
         self._orders: dict[str, Order] = {}
         self.last_update_time = None
         self.last_trade_price = None
+        self._best_bid_cache = None
+        self._best_ask_cache = None
 
     def apply_snapshot(self, snapshot_data):
+        self._best_bid_cache = None
+        self._best_ask_cache = None
         self.bids = {
             float(x['price']): s
             for x in snapshot_data.get('bids', [])
@@ -38,54 +42,85 @@ class ShadowBook:
 
     def apply_delta(self, delta_item: dict) -> bool:
         """
-        Updates a single price level. 
+        Updates a single price level and maintains smart caches.
         Returns True if the book is healthy, False if a desync is detected.
         """
-        
         try:
             side = delta_item.get('side')
             price = float(delta_item.get('price'))
             size = float(delta_item.get('size'))
 
-            # 1. Update the Local Book
-            target_book = self.bids if side == 'buy' else self.asks
-
-            if size == 0:
-                target_book.pop(price, None)
+            # 1. Update the Local Book & Manage Cache
+            if side == 'buy':
+                if size == 0:
+                    self.bids.pop(price, None)
+                    # Cache Invalidation: Only if we removed the top bid
+                    if self._best_bid_cache == price:
+                        self._best_bid_cache = None
+                else:
+                    self.bids[price] = size
+                    # Cache Update: Only if new price is BETTER (Higher) than current
+                    if self._best_bid_cache is not None and price > self._best_bid_cache:
+                        self._best_bid_cache = price
             else:
-                target_book[price] = size
+                # Sell Side
+                if size == 0:
+                    self.asks.pop(price, None)
+                    # Cache Invalidation: Only if we removed the top ask
+                    if self._best_ask_cache == price:
+                        self._best_ask_cache = None
+                else:
+                    self.asks[price] = size
+                    # Cache Update: Only if new price is BETTER (Lower) than current
+                    if self._best_ask_cache is not None and price < self._best_ask_cache:
+                        self._best_ask_cache = price
 
             # 2. Sanity Check (Optimized: Random Sampling)
-            # Only check ~1% of updates to save CPU. 
-            # Calculating max() on every tick is too slow.
             if random.random() < 0.01: 
                 server_best = float(delta_item.get('best_bid' if side == 'buy' else 'best_ask', 0))
                 
                 if server_best > 0:
-                    # NOW we pay the cost of finding the max/min
+                    # NOW we pay the cost of finding the max/min using our optimized getters
                     my_best = self.get_best_bid() if side == 'buy' else self.get_best_ask()
                     
-                    if abs(my_best - server_best) > 0.001:
+                    if my_best is None or abs(my_best - server_best) > 0.001:
+                        # Log warning if needed
                         return False # Desync detected 
-            # Only update time after successful parsing, applying, and verifying
+
             self.last_update_time = time.time()
             return True
 
-        except (ValueError, TypeError):
-            # Malformed data package, treat as desync to be safe
+        except Exception as e:
+            # It's good practice to catch parsing errors to avoid crashing the thread
+            print(f"Error applying delta: {e}")
             return False
 
     def get_best_bid(self):
         """
-        Returns the best bid price or None if no bids.
+        Returns best bid with O(1) access 90% of the time.
         """
-        return max(self.bids.keys()) if self.bids else None
+        # Return cached value if it exists
+        if self._best_bid_cache is not None:
+            return self._best_bid_cache
+
+        # Fallback: Calculate, Cache, and Return
+        if not self.bids:
+            return None
+        self._best_bid_cache = max(self.bids.keys())
+        return self._best_bid_cache
     
     def get_best_ask(self):
         """
-        Returns the best ask price or None if no asks.
+        Returns best ask with O(1) access.
         """
-        return min(self.asks.keys()) if self.asks else None
+        if self._best_ask_cache is not None:
+            return self._best_ask_cache
+
+        if not self.asks:
+            return None
+            
+        self._best_ask_cache = min(self.asks.keys())
+        return self._best_ask_cache
 
     def get_mid_price(self):
         best_bid = self.get_best_bid()
