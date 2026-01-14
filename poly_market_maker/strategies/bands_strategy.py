@@ -14,12 +14,7 @@ class BandsStrategy(BaseStrategy):
         assert isinstance(config, dict)
 
         super().__init__()
-        try:
-            self.bands = Bands(config.get("bands"))
-        except Exception as e:
-            self.logger.exception(
-                f"Config is invalid ({e}). Treating the config as if it has no bands."
-            )
+        self.bands = Bands(config.get("bands"))
         
         # Map String -> Enum (O(1) lookup)
         token_map = {"A": Token.A, "B": Token.B}
