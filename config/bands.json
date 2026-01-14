@@ -1,9 +1,9 @@
 {
   "bands": [
     {
-      "minMargin": 0.03,
-      "avgMargin": 0.04,
-      "maxMargin": 0.05,
+      "minMargin": 0.04,
+      "avgMargin": 0.06,
+      "maxMargin": 0.08,
       "minAmount": 30.0,
       "avgAmount": 40.0,
       "maxAmount": 50.0

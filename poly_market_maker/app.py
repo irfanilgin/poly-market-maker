@@ -68,14 +68,13 @@ class App:
             token_ids = self.clob_api.get_token_ids(args.condition_id)
             self.market = Market(
                 args.condition_id,
+                token_ids,
                 self.clob_api.get_collateral_address(),
             )
             
-            self.market.token_ids = {token_ids[Token.A], token_ids[Token.B]}
             self.shadow_book = ShadowBook(token_id=self.market.token_id(Token.A)) # Initialize in live mode
 
         self.last_strategy_run = 0
-        self.strategy_interval = args.refresh_frequency
 
         self.gas_station = GasStation(
             strat=GasStrategy(args.gas_strategy),
@@ -228,7 +227,7 @@ class App:
                 size=order_dict["size"],
                 price=order_dict["price"],
                 side=Side(order_dict["side"]),
-                token=self.market.token(order_dict["token_id"]),
+                token=self.market.token(str(order_dict["token_id"])),
                 id=order_dict["id"],
             )
             for order_dict in orders

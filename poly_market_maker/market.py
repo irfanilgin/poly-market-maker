@@ -23,6 +23,7 @@ class Market:
         return self.token_ids[token]
 
     def token(self, token_id: int) -> Token:
+        #TODO: should we make these str()?
         for token in Token:
             if token_id == self.token_ids[token]:
                 return token

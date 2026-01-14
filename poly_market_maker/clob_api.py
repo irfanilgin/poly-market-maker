@@ -3,12 +3,13 @@ import sys
 import time
 import requests
 from py_clob_client.client import ClobClient, ApiCreds, OrderArgs
+from py_clob_client.clob_types import OpenOrderParams, AssetType, BalanceAllowanceParams
 from py_clob_client.exceptions import PolyApiException
 
 from poly_market_maker.utils import randomize_default_price
 from poly_market_maker.constants import OK
 from poly_market_maker.metrics import clob_requests_latency
-from poly_market_maker.token import Token # Added import
+from poly_market_maker.token import Token, Collateral
 
 DEFAULT_PRICE = 0.5
 
@@ -159,7 +160,10 @@ class ClobApi:
             clob_requests_latency.labels(method="cancel", status="ok").observe(
                 (time.time() - start_time)
             )
-            return resp == OK
+            # Fix: Check for list, dict with 'canceled' items, or success=True
+            if isinstance(resp, list) or (isinstance(resp, dict) and (resp.get("success", False) or len(resp.get("canceled", [])) > 0)):
+                return True
+            return resp == OK # Fallback for mock/legacy behavior
         except Exception as e:
             self.logger.error(f"Error cancelling order: {order_id}: {e}")
             clob_requests_latency.labels(method="cancel", status="error").observe(
@@ -175,7 +179,10 @@ class ClobApi:
             clob_requests_latency.labels(method="cancel_all", status="ok").observe(
                 (time.time() - start_time)
             )
-            return resp == OK
+            # Fix: Check for list, dict with 'canceled' items, or success=True
+            if isinstance(resp, list) or (isinstance(resp, dict) and (resp.get("success", False) or len(resp.get("canceled", [])) > 0)):
+                return True
+            return resp == OK # Fallback for mock/legacy behavior
         except Exception as e:
             self.logger.error(f"Error cancelling all orders: {e}")
             clob_requests_latency.labels(method="cancel_all", status="error").observe(
@@ -215,6 +222,76 @@ class ClobApi:
         except: # Catch all exceptions here for robustness
             self.logger.error("Unable to connect to CLOB API, shutting down!")
             sys.exit(1)
+
+    def get_orders(self, condition_id: str):
+            """
+            Get open keeper orders on the orderbook.
+            """
+            self.logger.debug("Fetching open keeper orders from the API...")
+            start_time = time.time()
+            try:
+                # FIX: Use OpenOrderParams if possible, or fetch all if arguments fail.
+                # We try the standard way first.
+                try:
+                    resp = self.client.get_orders(
+                        OpenOrderParams(market=condition_id)
+                    )
+                except TypeError:
+                    # Fallback: Fetch all orders if 'market' arg fails
+                    self.logger.debug("Fetching ALL orders (market filter not supported by this client ver)...")
+                    resp = self.client.get_orders()
+
+                clob_requests_latency.labels(method="get_orders", status="ok").observe(
+                    (time.time() - start_time)
+                )
+
+                # Map the response
+                return [self._get_order(order) for order in resp]
+
+            except Exception as e:
+                self.logger.error(
+                    f"Error fetching keeper open orders from the CLOB API: {e}"
+                )
+                clob_requests_latency.labels(method="get_orders", status="error").observe(
+                    (time.time() - start_time)
+                )
+            return []
+
+    def get_balances(self):
+        """
+        Fetches the user's collateral (USDC) balance.
+        Required by the strategy to check for funds.
+        """
+        self.logger.debug("Fetching user balances...")
+        try:
+            # 1. Fetch the raw balance from API
+            resp = self.client.get_balance_allowance(
+                params=BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+            )
+            
+            # 2. Extract the numeric value (handling string/float differences)
+            balance = float(resp.get('balance', 0))
+            
+            # 3. Get the Collateral Address (USDC Address on Polygon)
+            # This is usually 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174
+            collateral_address = self.client.get_collateral_address()
+            
+            self.logger.info(f"💰 Balance Check: {balance} USDC (Address: {collateral_address})")
+
+            # 4. Return the balance keyed by BOTH the address and the name
+            # This covers all possible ways the strategy might look for it.
+            return {
+                Collateral: balance,
+                collateral_address: balance, 
+                collateral_address.lower(): balance,
+                Token.A: 0.0,
+                Token.B: 0.0
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error fetching balances: {e}")
+            # Return safe defaults on error to prevent strategy crash
+            return {Collateral: 0.0, Token.A: 0.0, Token.B: 0.0}
 
     def _get_order(self, order_dict: dict) -> dict:
         size = float(order_dict.get("original_size")) - float(

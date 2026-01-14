@@ -189,7 +189,17 @@ class Bands:
         assert isinstance(target_price, float)
 
         for order in orders:
-            if not any(band.includes(order, target_price) for band in bands):
+            # Check if order fits any band
+            is_valid = any(band.includes(order, target_price) for band in bands)
+
+            if not is_valid:
+                # --- DEBUG LOGGING START ---
+                self.logger.info(f"MISMATCH DEBUG: Order Price: {order.price} | Target Price: {target_price}")
+                for i, band in enumerate(bands):
+                    # Log the band details to see the calculated range
+                    self.logger.info(f"   Band {i} rejected it. Band details: {band}")
+                # --- DEBUG LOGGING END ---
+
                 self.logger.info(
                     f"Order #{order.id} doesn't belong to any band, scheduling it for cancellation"
                 )
