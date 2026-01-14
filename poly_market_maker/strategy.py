@@ -135,6 +135,7 @@ class StrategyManager:
         # Priority 1: Argument
         if price is not None:
              price_a = price
+        #TODO: last_trade_price is not used anymore?
         elif (price := self.shadow_book.last_trade_price) is not None and False: # check freshness
              price_a = price
         else:
