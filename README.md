@@ -14,7 +14,7 @@ Places and cancels orders to keep open orders near the midpoint price according 
 
 ## Requirements
 
-- Python 3.10
+- Python 3.12
 
 ## Setup
 
