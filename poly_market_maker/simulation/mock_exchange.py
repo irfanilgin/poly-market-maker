@@ -26,6 +26,10 @@ class MockExchange:
         self.token_A_balance = 100.0
         self.token_B_balance = 100.0
 
+    def set_token_ids(self, token_a_id, token_b_id):
+        # In mock mode, we might just store them or ignore if we depend on ShadowBook token_id
+        pass
+
 
     def get_address(self) -> str:
         return self._mock_address
