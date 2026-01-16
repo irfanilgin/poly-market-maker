@@ -78,13 +78,17 @@ class StrategyManager:
                 self.logger.error(f"{e}")
                 return
 
+            self.logger.info("DEBUG: Synchronizing strategy... checking price...")
             token_prices = self.get_token_prices(price=price)
             if token_prices is None:
+                self.logger.info("DEBUG: Strategy skipped - No price available.")
                 return 
 
+            self.logger.info(f"DEBUG: Price found: {token_prices}. Getting orders...")
             (orders_to_cancel, orders_to_place) = self.strategy.get_orders(
                 orderbook, token_prices
             )
+            self.logger.info(f"DEBUG: Strategy calculated: Cancel {len(orders_to_cancel)}, Place {len(orders_to_place)}")
 
             # 3. EXECUTION LOGIC
             # If we have orders to cancel, we ONLY cancel this tick.

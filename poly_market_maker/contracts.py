@@ -107,7 +107,7 @@ class Contracts:
                 chain_requests_counter.labels(method="approve", status="error").inc()
                 raise e
 
-            txn_hash_hex = self.w3.toHex(txn_hash_bytes)
+            txn_hash_hex = self.w3.to_hex(txn_hash_bytes)
             self.logger.info(f"ERC20 approve transaction hash: {txn_hash_hex}")
             return txn_hash_hex
 
@@ -132,7 +132,7 @@ class Contracts:
                 ).inc()
                 raise e
 
-            txn_hash_hex = self.w3.toHex(txn_hash_bytes)
+            txn_hash_hex = self.w3.to_hex(txn_hash_bytes)
             self.logger.info(f"ERC1155 approve transaction hash: {txn_hash_hex}")
             return txn_hash_hex
 

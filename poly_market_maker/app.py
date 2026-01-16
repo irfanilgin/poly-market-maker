@@ -30,6 +30,7 @@ class App:
         self.logger = logging.getLogger(__name__)
 
         args = get_args(args)
+        self.is_simulate = args.simulate # Store for startup check
         self.refresh_frequency = args.refresh_frequency
         self.sync_lock = threading.Lock() # Lock to prevent concurrency between WebSocket and Timer
 
@@ -76,6 +77,9 @@ class App:
             )
             
             self.shadow_book = ShadowBook(token_id=self.market.token_id(Token.A)) # Initialize in live mode
+        
+        # Pass Token IDs to ClobApi (or MockExchange) so it can fetch conditional balances
+        self.clob_api.set_token_ids(token_ids.get('yes'), token_ids.get('no'))
 
         self.last_strategy_run = 0
 
@@ -149,7 +153,7 @@ class App:
     def startup(self):
         self.logger.info("Running startup callback...")
         # Only approve real contracts if not in simulation mode
-        if not self.shadow_book:
+        if not self.is_simulate:
             self.approve()
         time.sleep(5)  # 5 second initial delay so that bg threads fetch the orderbook
         self.logger.info("Startup complete!")

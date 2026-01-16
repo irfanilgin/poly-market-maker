@@ -2,7 +2,6 @@ import requests
 import pandas as pd
 import sys
 from datetime import datetime, timezone
-from logger import logger
 import numpy as np
 
 
@@ -29,20 +28,21 @@ class PolymarketData:
 
             # Find the YES outcome token
             yes_token_id = None
+            no_token_id = None
             for t in tokens:
-                if t.get('outcome') == 'Yes':
+                if t.get('outcome').lower() == 'yes':
                     yes_token_id = t.get('token_id')
-                    break
+                if t.get('outcome').lower() == 'no':
+                    no_token_id = t.get('token_id')
 
             # Fallback
             if not yes_token_id and tokens:
                 yes_token_id = tokens[0].get('token_id')
 
-            return yes_token_id, question
+            return yes_token_id, no_token_id, question
 
         except Exception as e:
-            logger.error(f"Failed to resolve ID: {str(e)}")
-            return None, None
+            return None, None, None
 
     import requests
 
@@ -94,7 +94,6 @@ class PolymarketData:
             response = requests.get(url, params=params)
             return response.json().get("history", []) if response.status_code == 200 else []
         except Exception as e:
-            logger.error(f"History fetch failed: {str(e)}")
             return []
 
 
@@ -113,14 +112,12 @@ class PolymarketData:
             logger.info(f"Requesting history for token {token_id} with interval {interval}")
             response = requests.get(url, params=params)
             if response.status_code != 200:
-                logger.error(f"Price history API error {response.status_code}")
                 return []
 
             history = response.json().get("history", [])
             logger.info(f"Retrieved {len(history)} data points")
             return history
         except Exception as e:
-            logger.error(f"History fetch failed: {str(e)}")
             return []
 
     def process_to_series(self, history_data, timeframe='1h', use_logs=True, clip=True, lower=0.01, upper=0.99):
@@ -142,12 +139,12 @@ class PolymarketData:
         # Optional Clipping
         if clip:
             series = series.clip(lower=lower, upper=upper)
-            logger.info(f"Series clipped to [{lower}, {upper}]")
+            print(f"Series clipped to [{lower}, {upper}]")
 
         # Optional Log Transformation
         if use_logs:
             series = np.log(series)
-            logger.info("Applied log transformation to series")
+            print("Applied log transformation to series")
 
         return series
 
@@ -158,14 +155,14 @@ class PolymarketData:
         """
         # 1. Pre-Check for Alignment
         if not series_a.index.equals(series_b.index):
-            logger.warning("⚠️ Mismatch detected between Series A and Series B timestamps!")
-            logger.warning(f"   Series A count: {len(series_a)}")
-            logger.warning(f"   Series B count: {len(series_b)}")
+            print("⚠️ Mismatch detected between Series A and Series B timestamps!")
+            print(f"   Series A count: {len(series_a)}")
+            print(f"   Series B count: {len(series_b)}")
 
             # Calculate how many points don't match
             # "Symmetric Difference" = points in A not in B + points in B not in A
             diff_count = len(series_a.index.symmetric_difference(series_b.index))
-            logger.warning(f"   ⚠️ {diff_count} data points will be dropped during synchronization.")
+            print(f"{diff_count} data points will be dropped during synchronization.")
 
         # 2. Perform the Sync (Inner Join)
         combined = pd.concat([series_a, series_b], axis=1, join='inner')
@@ -173,31 +170,8 @@ class PolymarketData:
 
         # 3. Final Verification
         if len(combined) == 0:
-            logger.error("❌ Critical Error: Synchronization resulted in 0 overlapping points!")
+            print("Critical Error: Synchronization resulted in 0 overlapping points!")
         else:
-            logger.info(f"✅ Synchronized series: {len(combined)} overlapping points ready for analysis.")
+            print(f"Synchronized series: {len(combined)} overlapping points ready for analysis.")
 
         return combined['a'], combined['b']
-
-
-
-if __name__ == "__main__":
-    # Test Condition ID
-    CID = "0x7ad403c3508f8e3912940fd1a913f227591145ca0614074208e0b962d5fcc422"
-    REAL_CONDITION_ID = "0x258c7094054a85420362f6460980c54c3405d4b553e4b774640d04694902d338"
-    # Initialize class
-    pm = PolymarketData()
-
-    # Run pipeline
-    token, question = pm.get_market_info(CID)
-    print(question)
-    if token:
-        raw = pm.fetch_history_by_interval(token, interval="1d", fidelity=5)
-        clean_series = pm.process_to_series(raw, timeframe='5min')
-
-        # Log basic summary instead of printing raw data
-        logger.info(f"Series processed with {len(clean_series)} points")
-        logger.info(f"Mean price: {clean_series.mean()}")
-
-        volume = pm.get_daily_volume(token)
-        print(f"24-Hour Volume: ${volume:,.2f}")
