@@ -529,3 +529,96 @@ class TestBand(TestCase):
     #     self.assertEqual(
     #         len(test_bands.cancellable_orders(buys, sells, target_price)), 0
     #     )
+
+    def test_vanilla_mode_includes(self):
+        """Test that validation logic correctly identifies sell orders in vanilla mode."""
+        # Band margins: min 0.02, max 0.04.
+        # Target: 0.80
+        # Valid Buy Range: [0.76, 0.78]  (0.80 - 0.04 to 0.80 - 0.02)
+        # Valid Sell Range (Vanilla): [0.82, 0.84] (Symmetric around 0.80)
+        
+        band = Band(
+            min_margin=0.02,
+            avg_margin=0.03,
+            max_margin=0.04,
+            min_amount=10.0,
+            avg_amount=20.0,
+            max_amount=50.0,
+        )
+        target_price = 0.80
+
+        # Case 1: Sell Order inside the band (0.83)
+        # Calculation: 2*0.80 - 0.83 = 0.77. 0.77 is inside [0.76, 0.78].
+        valid_sell = Order(size=10, price=0.83, side=Side.SELL, token=self.token)
+        self.assertTrue(band.includes(valid_sell, target_price, vanilla_mode=True))
+
+        # Case 2: Sell Order outside the band (0.85) - Too high
+        # Calculation: 2*0.80 - 0.85 = 0.75. 0.75 is < 0.76.
+        invalid_sell_high = Order(size=10, price=0.85, side=Side.SELL, token=self.token)
+        self.assertFalse(band.includes(invalid_sell_high, target_price, vanilla_mode=True))
+
+        # Case 3: Sell Order outside the band (0.81) - Too low
+        # Calculation: 2*0.80 - 0.81 = 0.79. 0.79 is > 0.78.
+        invalid_sell_low = Order(size=10, price=0.81, side=Side.SELL, token=self.token)
+        self.assertFalse(band.includes(invalid_sell_low, target_price, vanilla_mode=True))
+
+        # Case 4: Verify Old Logic (Arbitrage) would fail for this valid vanilla order
+        # 1 - 0.83 = 0.17. 0.17 is not in [0.76, 0.78].
+        self.assertFalse(band.includes(valid_sell, target_price, vanilla_mode=False))
+
+    def test_vanilla_mode_new_orders(self):
+        """Test that new orders are placed symmetrically in vanilla mode."""
+        test_bands = Bands(test_bands_config.get("bands"))
+        
+        target_price = 0.80
+        keeper_usdc_balance = 1000.0
+        
+        # Scenario 1: High Token Balance
+        # Should prioritize Sells to manage inventory (fill bands with Sells)
+        keeper_token_balance_high = 1000.0
+        
+        new_orders_sells = test_bands.new_orders(
+            [], 
+            keeper_usdc_balance,
+            keeper_token_balance_high,
+            target_price,
+            self.token,
+            vanilla_mode=True
+        )
+        
+        # Expectation: Only Sells (because 1000 balance > avgAmount 20, so it fills entirely with Sells)
+        sells = [o for o in new_orders_sells if o.side == Side.SELL]
+        buys = [o for o in new_orders_sells if o.side == Side.BUY]
+        self.assertTrue(len(sells) > 0)
+        self.assertEqual(len(buys), 0)
+        
+        # Check Closest Sell price
+        # Band 1 (margin 0.03): 0.80 + 0.03 = 0.83
+        closest_sell = min(sells, key=lambda o: o.price)
+        self.assertAlmostEqual(closest_sell.price, 0.83)
+
+
+        # Scenario 2: Zero Token Balance
+        # Keep has no tokens, so it MUST Buy to provide liquidity
+        keeper_token_balance_zero = 0.0
+        
+        new_orders_buys = test_bands.new_orders(
+            [], 
+            keeper_usdc_balance,
+            keeper_token_balance_zero,
+            target_price,
+            self.token,
+            vanilla_mode=True
+        )
+        
+        buys2 = [o for o in new_orders_buys if o.side == Side.BUY]
+        sells2 = [o for o in new_orders_buys if o.side == Side.SELL]
+        
+        # Expectation: Only Buys (no tokens to sell)
+        self.assertTrue(len(buys2) > 0)
+        self.assertEqual(len(sells2), 0)
+
+        # Check Closest Buy price
+        # Band 1 (margin 0.03): 0.80 - 0.03 = 0.77
+        closest_buy = max(buys2, key=lambda o: o.price)
+        self.assertAlmostEqual(closest_buy.price, 0.77)

@@ -8,7 +8,7 @@ from poly_market_maker.args import get_args
 
 # --- CONFIGURATION ---
 # The specific market Condition ID you want to trade
-CONDITION_ID = "0x7ad403c3508f8e3912940fd1a913f227591145ca0614074208e0b962d5fcc422"
+CONDITION_ID = "0xe93c89c41d1bb08d3bb40066d8565df301a696563b2542256e6e8bbbb1ec490d"
 # ---------------------
 
 # 1. Setup Logging
@@ -47,7 +47,7 @@ def run():
         
         "--refresh-frequency", "5",
         "--min-size", "15",
-        "--min-tick", "0.01",
+        "--min-tick", "0.001",
         
         "--simulate", ""
     ]

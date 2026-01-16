@@ -1,12 +1,12 @@
 {
   "bands": [
     {
-      "minMargin": 0.002,
-      "avgMargin": 0.003,
-      "maxMargin": 0.004,
-      "minAmount": 5.0,
-      "avgAmount": 10.0,
-      "maxAmount": 15.0
+      "minMargin": 0.003,
+      "avgMargin": 0.004,
+      "maxMargin": 0.005,
+      "minAmount": 15.0,
+      "avgAmount": 20.0,
+      "maxAmount": 25.0
     }
   ],
   "active_tokens": [
