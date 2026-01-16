@@ -78,13 +78,14 @@ class StrategyManager:
                 self.logger.error(f"{e}")
                 return
 
-            self.logger.info("DEBUG: Synchronizing strategy... checking price...")
+            if orderbook.orders_being_placed:
+                self.logger.debug("Orders are being placed. Skipping strategy cycle.")
+                return
+
             token_prices = self.get_token_prices(price=price)
             if token_prices is None:
                 self.logger.info("DEBUG: Strategy skipped - No price available.")
-                return 
-
-            self.logger.info(f"DEBUG: Price found: {token_prices}. Getting orders...")
+                return ``
             (orders_to_cancel, orders_to_place) = self.strategy.get_orders(
                 orderbook, token_prices
             )

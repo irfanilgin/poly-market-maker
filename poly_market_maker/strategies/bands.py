@@ -2,7 +2,7 @@ import itertools
 import logging
 
 from poly_market_maker.token import Token
-from poly_market_maker.constants import MIN_TICK, MIN_SIZE, MAX_DECIMALS
+from poly_market_maker.constants import MIN_TICK, MIN_SIZE, MAX_DECIMALS, EPSILON
 from poly_market_maker.order import Order, Side
 
 
@@ -48,12 +48,13 @@ class Band:
         target_price: float,
         is_first_band: bool,
         is_last_band: bool,
+        vanilla_mode: bool = False,
     ) -> list[Order]:
         """Return orders which need to be cancelled to bring the total order amount in the band below maximum."""
         self.logger.debug("Running excessive orders.")
         # Get all orders which are currently present in the band.
         orders_in_band = [
-            order for order in orders if self.includes(order, target_price)
+            order for order in orders if self.includes(order, target_price, vanilla_mode=vanilla_mode)
         ]
         orders_total_size = sum(order.size for order in orders_in_band)
 
@@ -96,15 +97,25 @@ class Band:
 
         return orders_for_cancellation
 
-    def includes(self, order: Order, target_price: float) -> bool:
+    def includes(self, order: Order, target_price: float, vanilla_mode: bool = False) -> bool:
+        # Define a small tolerance (e.g. 0.0001) to handle floating point "dust"
+
         if order.side == Side.BUY:
             price = order.price
         else:
-            # round to 6 decimals to avoid floating point issues
-            price = round(1 - order.price, MAX_DECIMALS)
+            if vanilla_mode:
+                # Vanilla: Sell Price should be symmetric to Buy Price around target
+                # Price' = Target - (OrderPrice - Target) = 2*Target - OrderPrice
+                price = round(2 * target_price - order.price, MAX_DECIMALS)
+            else:
+                # Arbitrage: Sell B (1-Price) equivalent to Buy A Price
+                # round to 6 decimals to avoid floating point issues
+                price = round(1 - order.price, MAX_DECIMALS)
 
-        return (price > self.min_price(target_price)) and (
-            price <= self.max_price(target_price)
+        # 1. Allow price to be slightly lower than min_price (by EPSILON)
+        # 2. Allow price to be slightly higher than max_price (by EPSILON)
+        return (price > (self.min_price(target_price) - EPSILON)) and (
+            price < (self.max_price(target_price) + EPSILON)
         )
 
     @staticmethod
@@ -164,7 +175,7 @@ class Bands:
         return virtual_bands
 
     def _excessive_orders(
-        self, orders: list[Order], bands: list[Band], target_price: float
+        self, orders: list[Order], bands: list[Band], target_price: float, vanilla_mode: bool = False
     ) -> list[Order]:
         """Return orders which need to be cancelled to bring total amounts within all bands below maximums."""
         assert isinstance(orders, list)
@@ -177,11 +188,12 @@ class Bands:
                 target_price,
                 band == bands[0],  # is first
                 band == bands[-1],  # is last
+                vanilla_mode=vanilla_mode,
             ):
                 yield order
 
     def _outside_any_band_orders(
-        self, orders: list[Order], bands: list[Band], target_price: float
+        self, orders: list[Order], bands: list[Band], target_price: float, vanilla_mode: bool = False
     ) -> list[Order]:
         """Return buy or sell orders which need to be cancelled as they do not fall into any buy or sell band."""
         assert isinstance(orders, list)
@@ -190,7 +202,7 @@ class Bands:
 
         for order in orders:
             # Check if order fits any band
-            is_valid = any(band.includes(order, target_price) for band in bands)
+            is_valid = any(band.includes(order, target_price, vanilla_mode=vanilla_mode) for band in bands)
 
             if not is_valid:
                 # --- DEBUG LOGGING START ---
@@ -205,7 +217,7 @@ class Bands:
                 )
                 yield order
 
-    def cancellable_orders(self, orders: list, target_price: float) -> list:
+    def cancellable_orders(self, orders: list, target_price: float, vanilla_mode: bool = False) -> list:
         assert isinstance(orders, list)
         assert isinstance(target_price, float)
 
@@ -220,11 +232,13 @@ class Bands:
                         orders,
                         self._calculate_virtual_bands(target_price),
                         target_price,
+                        vanilla_mode=vanilla_mode,
                     ),
                     self._outside_any_band_orders(
                         orders,
                         self._calculate_virtual_bands(target_price),
                         target_price,
+                        vanilla_mode=vanilla_mode,
                     ),
                 )
             )
@@ -238,7 +252,7 @@ class Bands:
         token_balance: float,
         target_price: float,
         buy_token: Token,
-        vanilla_mode: bool,
+        vanilla_mode: bool = False,
     ) -> list[Order]:
         assert isinstance(orders, list)
         assert isinstance(collateral_balance, float)
@@ -251,7 +265,7 @@ class Bands:
         new_orders = []
         for band in self._calculate_virtual_bands(target_price):
             band_amount = sum(
-                order.size for order in orders if band.includes(order, target_price)
+                order.size for order in orders if band.includes(order, target_price, vanilla_mode=vanilla_mode)
             )
 
             self.logger.debug(f"{band} has existing amount {band_amount},")

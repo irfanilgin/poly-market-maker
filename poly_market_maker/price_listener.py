@@ -76,10 +76,8 @@ class PriceListener:
 
         # --- CASE 1: SNAPSHOT (Book) ---
         if event_type == "book":
-            book_data = data.get("market")
-            
             # Check asset/condition ID match
-            if book_data == self.condition_id and str(data.get("asset_id")) == str(self.asset_id):
+            if data.get("market") == self.condition_id and str(data.get("asset_id")) == str(self.asset_id):
                 
                 # 1. ALWAYS Update State (Data Integrity)
                 raw_price = data.get("last_trade_price", "")
@@ -104,16 +102,18 @@ class PriceListener:
         elif event_type == "price_change":
             price_changes = data.get("price_changes")
             if isinstance(price_changes, list):
-                # 1. ALWAYS Update State
                 for change in price_changes:
-                    # You presumably have an apply_delta method
-                    self.shadow_book.apply_delta(change) 
+                    asset_id = change.get("asset_id")
+                    # Filter by Asset ID to prevent applying deltas from other tokens
+                    if asset_id == str(self.asset_id):
+                        self.shadow_book.apply_delta(change) 
 
+                    else:
+                        self.logger.debug(f"Ignoring irrelevant price_change for asset: {asset_id}")
                 # 2. Debounce Action
                 self._try_trigger_strategy()
-
-        else:
-            self.logger.debug(f"Ignoring unknown WS message type: {event_type}")
+            else:
+                self.logger.debug(f"Ignoring unknown WS message type: {event_type}")
 
     def _try_trigger_strategy(self):
         """Helper to debounce the expensive strategy callback."""

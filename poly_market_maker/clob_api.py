@@ -43,6 +43,13 @@ class ClobApi:
             )
         else:
             self.logger.info("ClobApi initialized in mock mode.")
+        
+        self.token_a_id = None
+        self.token_b_id = None
+
+    def set_token_ids(self, token_a_id, token_b_id):
+        self.token_a_id = token_a_id
+        self.token_b_id = token_b_id
 
     def get_address(self):
         return self.client.get_address()
@@ -94,17 +101,32 @@ class ClobApi:
 
     def get_orders(self, condition_id: str):
         """
-        Get open keeper orders on the orderbook
+        Get open keeper orders on the orderbook.
+        Fetches ALL orders and filters client-side to avoid API parameter issues.
         """
         self.logger.debug("Fetching open keeper orders from the API...")
         start_time = time.time()
         try:
-            resp = self.client.get_orders(market=condition_id)
+
+            #TODO: test OpenOrderParams for client call
+            resp = self.client.get_orders()
+
             clob_requests_latency.labels(method="get_orders", status="ok").observe(
                 (time.time() - start_time)
             )
 
-            return [self._get_order(order) for order in resp]
+            #TODO: Do we need this filter
+            valid_token_ids = [str(self.token_a_id), str(self.token_b_id)]
+            
+            filtered_resp = []
+            for order in resp:
+                if str(order.get("asset_id")) in valid_token_ids:
+                    filtered_resp.append(order)
+            
+            self.logger.debug(f"Fetched {len(resp)} orders, {len(filtered_resp)} match our tokens.")
+
+            return [self._get_order(order) for order in filtered_resp]
+
         except Exception as e:
             self.logger.error(
                 f"Error fetching keeper open orders from the CLOB API: {e}"
@@ -223,80 +245,62 @@ class ClobApi:
             self.logger.error("Unable to connect to CLOB API, shutting down!")
             sys.exit(1)
 
-    def get_orders(self, condition_id: str):
-            """
-            Get open keeper orders on the orderbook.
-            """
-            self.logger.debug("Fetching open keeper orders from the API...")
-            start_time = time.time()
-            try:
-                # FIX: Use OpenOrderParams if possible, or fetch all if arguments fail.
-                # We try the standard way first.
-                try:
-                    resp = self.client.get_orders(
-                        OpenOrderParams(market=condition_id)
-                    )
-                except TypeError:
-                    # Fallback: Fetch all orders if 'market' arg fails
-                    self.logger.debug("Fetching ALL orders (market filter not supported by this client ver)...")
-                    resp = self.client.get_orders()
-
-                clob_requests_latency.labels(method="get_orders", status="ok").observe(
-                    (time.time() - start_time)
-                )
-
-                # Map the response
-                return [self._get_order(order) for order in resp]
-
-            except Exception as e:
-                self.logger.error(
-                    f"Error fetching keeper open orders from the CLOB API: {e}"
-                )
-                clob_requests_latency.labels(method="get_orders", status="error").observe(
-                    (time.time() - start_time)
-                )
-            return []
 
     def get_balances(self):
         """
-        Fetches the user's collateral (USDC) balance.
-        Required by the strategy to check for funds.
+        Fetches the user's collateral (USDC) and Conditional Token balances.
         """
         self.logger.debug("Fetching user balances...")
-        try:
-            # 1. Fetch the raw balance from API
-            resp = self.client.get_balance_allowance(
-                params=BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
-            )
-            
-            # 2. Extract the numeric value (handling string/float differences)
-            balance = float(resp.get('balance', 0))
-            
-            # 3. Get the Collateral Address (USDC Address on Polygon)
-            # This is usually 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174
-            collateral_address = self.client.get_collateral_address()
-            
-            self.logger.info(f"💰 Balance Check: {balance} USDC (Address: {collateral_address})")
+        balances = {Collateral: 0.0, Token.A: 0.0, Token.B: 0.0}
+        
+        # Polymarket uses 6 decimals for USDC and Conditional Tokens
+        DECIMALS = 10**6
 
-            # 4. Return the balance keyed by BOTH the address and the name
-            # This covers all possible ways the strategy might look for it.
-            return {
-                Collateral: balance,
-                collateral_address: balance, 
-                collateral_address.lower(): balance,
-                Token.A: 0.0,
-                Token.B: 0.0
-            }
+        try:
+            # 1. Collateral
+            try:
+                resp = self.client.get_balance_allowance(
+                    params=BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+                )
+                balance = float(resp.get('balance', 0)) / DECIMALS
+                balances[Collateral] = balance
+                
+                # Add by address as well (legacy support)
+                collateral_address = self.client.get_collateral_address()
+                balances[collateral_address] = balance
+                balances[collateral_address.lower()] = balance
+            except Exception as e:
+                 self.logger.error(f"Error fetching Collateral balance: {e}")
+
+            # 2. Token A
+            if self.token_a_id:
+                try:
+                    resp = self.client.get_balance_allowance(
+                        params=BalanceAllowanceParams(asset_type=AssetType.CONDITIONAL, token_id=self.token_a_id)
+                    )
+                    balances[Token.A] = float(resp.get('balance', 0)) / DECIMALS
+                except Exception as e:
+                    self.logger.error(f"Error fetching Token A balance: {e}")
+
+            # 3. Token B
+            if self.token_b_id:
+                try:
+                    resp = self.client.get_balance_allowance(
+                        params=BalanceAllowanceParams(asset_type=AssetType.CONDITIONAL, token_id=self.token_b_id)
+                    )
+                    balances[Token.B] = float(resp.get('balance', 0)) / DECIMALS
+                except Exception as e:
+                    self.logger.error(f"Error fetching Token B balance: {e}")
+
+            self.logger.info(f"💰 Balances: USDC={balances.get(Collateral)}, A={balances.get(Token.A)}, B={balances.get(Token.B)}")
+            return balances
 
         except Exception as e:
             self.logger.error(f"Error fetching balances: {e}")
-            # Return safe defaults on error to prevent strategy crash
-            return {Collateral: 0.0, Token.A: 0.0, Token.B: 0.0}
-
+            return balances
+    
     def _get_order(self, order_dict: dict) -> dict:
-        size = float(order_dict.get("original_size")) - float(
-            order_dict.get("size_matched")
-        )
+        size = float(order_dict.get("original_size")) - float(order_dict.get("size_matched"))
         price = float(order_dict.get("price"))
         side = order_dict.get("side")
         order_id = order_dict.get("id")

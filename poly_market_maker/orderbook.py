@@ -43,6 +43,11 @@ class OrderBook:
 
     def update(self, orders: list[Order], balances: dict):
         """Replaces the entire state (used by the periodic sync)."""
+        #TODO: Do we need this check below??
+        if len(orders) == 0:
+            if len(self._orders) > 0:
+                 pass 
+
         with self._lock:
             self._orders = {o.id: o for o in orders}
             if balances:
