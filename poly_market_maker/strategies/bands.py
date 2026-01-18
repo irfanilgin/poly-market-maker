@@ -111,11 +111,9 @@ class Band:
                 # Arbitrage: Sell B (1-Price) equivalent to Buy A Price
                 # round to 6 decimals to avoid floating point issues
                 price = round(1 - order.price, MAX_DECIMALS)
-
-        # 1. Allow price to be slightly lower than min_price (by EPSILON)
-        # 2. Allow price to be slightly higher than max_price (by EPSILON)
-        return (price > self.min_price(target_price)) and (
-            price < self.max_price(target_price)
+        #TODO is >= or <= correct? Can we make this single sided?
+        return (price >= self.min_price(target_price)) and (
+            price <= self.max_price(target_price)
         )
 
     @staticmethod

@@ -13,7 +13,11 @@ token_id_1 = (
 
 
 class TestMarket(TestCase):
-    market = Market(condition_id, usdc_address)
+    market = Market(
+        condition_id,
+        {"yes": token_id_0, "no": token_id_1},
+        usdc_address,
+    )
 
     def test_init_market(self):
         self.assertEqual(self.market.condition_id, condition_id)

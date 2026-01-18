@@ -110,13 +110,13 @@ class TestBand(TestCase):
         target_price = 0.50
         orders = [
             Order(size=20, price=0.47, side=Side.BUY, token=self.token),
-            Order(size=30, price=0.44, side=Side.BUY, token=self.token),
+            Order(size=20, price=0.44, side=Side.BUY, token=self.token),
             Order(size=20, price=0.53, side=Side.SELL, token=self.token),
-            Order(size=30, price=0.56, side=Side.SELL, token=self.token),
+            Order(size=20, price=0.56, side=Side.SELL, token=self.token),
         ]
 
         # Expect none to be cancelled
-        self.assertEqual(len(test_bands.cancellable_orders(orders, target_price)), 2)
+        self.assertEqual(len(test_bands.cancellable_orders(orders, target_price)), 0)
 
         # Say price moves to 80c
         target_price = 0.80

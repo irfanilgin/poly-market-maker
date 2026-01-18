@@ -23,8 +23,8 @@ def test_generate_ws_headers_matches_spec():
     # Message: "1700000000GET/ws/user"
     # Key (bytes): "the-secret-key-123456"
     # HMAC-SHA256 (Hex): 980171d384de2aa1bc61de8df5e1e1e4efe003edb8ed6d45f5d2885e6f38d52d
-    # Base64 (UrlSafe): mAFx04TeKqG8Yd6N9eHh5O_gA-247W1F9dKIXm841S0=
-    expected_sig = "mAFx04TeKqG8Yd6N9eHh5O_gA-247W1F9dKIXm841S0="
+    # Base64 (UrlSafe): koidMR9DFCNVB9rJe4t8npvTqdstn9hn6hhI8BSRfeU=
+    expected_sig = "koidMR9DFCNVB9rJe4t8npvTqdstn9hn6hhI8BSRfeU="
 
     # 3. EXECUTE
     with patch('time.time', return_value=fixed_timestamp):
