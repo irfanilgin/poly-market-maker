@@ -7,7 +7,7 @@ import websockets
 
 from poly_market_maker.app import App
 from poly_market_maker.market import Token
-from poly_market_maker.simulation.shadow_book import ShadowBook
+from poly_market_maker.shadow_book import ShadowBook
 from poly_market_maker.price_listener import PriceListener
 
 logging.basicConfig(level=logging.INFO, format=">>> %(message)s")

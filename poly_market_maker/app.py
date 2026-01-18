@@ -16,7 +16,7 @@ from poly_market_maker.contracts import Contracts
 from poly_market_maker.metrics import keeper_balance_amount
 from poly_market_maker.strategy import StrategyManager
 from poly_market_maker.price_listener import PriceListener
-from poly_market_maker.simulation.shadow_book import ShadowBook
+from poly_market_maker.shadow_book import ShadowBook
 from poly_market_maker.simulation.mock_exchange import MockExchange
 from poly_market_maker.user_listener import UserListener
 from config.config import Config

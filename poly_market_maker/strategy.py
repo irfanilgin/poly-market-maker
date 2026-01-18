@@ -7,7 +7,7 @@ import traceback
 from poly_market_maker.orderbook_manager import OrderBookManager
 from poly_market_maker.token import Token, Collateral
 from poly_market_maker.constants import MAX_DECIMALS
-from poly_market_maker.simulation.shadow_book import ShadowBook # NEW IMPORT
+from poly_market_maker.shadow_book import ShadowBook
 
 from poly_market_maker.strategies.base_strategy import BaseStrategy
 from poly_market_maker.strategies.amm_strategy import AMMStrategy

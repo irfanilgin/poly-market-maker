@@ -6,7 +6,7 @@ import time
 import websockets
 from typing import Optional
 
-from poly_market_maker.simulation.shadow_book import ShadowBook
+from poly_market_maker.shadow_book import ShadowBook
 
 
 class PriceListener:
