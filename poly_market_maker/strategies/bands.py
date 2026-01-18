@@ -2,7 +2,7 @@ import itertools
 import logging
 
 from poly_market_maker.token import Token
-from poly_market_maker.constants import MIN_TICK, MIN_SIZE, MAX_DECIMALS, EPSILON
+from poly_market_maker.constants import MIN_TICK, MIN_SIZE, MAX_DECIMALS
 from poly_market_maker.order import Order, Side
 
 
@@ -114,8 +114,8 @@ class Band:
 
         # 1. Allow price to be slightly lower than min_price (by EPSILON)
         # 2. Allow price to be slightly higher than max_price (by EPSILON)
-        return (price > (self.min_price(target_price) - EPSILON)) and (
-            price < (self.max_price(target_price) + EPSILON)
+        return (price > self.min_price(target_price)) and (
+            price < self.max_price(target_price)
         )
 
     @staticmethod

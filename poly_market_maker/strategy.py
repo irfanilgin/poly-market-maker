@@ -85,7 +85,7 @@ class StrategyManager:
             token_prices = self.get_token_prices(price=price)
             if token_prices is None:
                 self.logger.info("DEBUG: Strategy skipped - No price available.")
-                return ``
+                return
             (orders_to_cancel, orders_to_place) = self.strategy.get_orders(
                 orderbook, token_prices
             )
